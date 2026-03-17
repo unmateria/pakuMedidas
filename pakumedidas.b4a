@@ -1,0 +1,1319 @@
+﻿Build1=Default,b4a.pakumedidas
+Group=Default Group
+Library1=core
+Library2=xui
+Library3=phone
+Library4=gestures
+Library5=sql
+Library6=json
+Library7=javaobject
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.LightTheme)~\n~AddPermission(android.permission.READ_EXTERNAL_STORAGE)~\n~AddPermission(android.permission.READ_MEDIA_IMAGES)~\n~AddPermission(android.permission.WRITE_EXTERNAL_STORAGE)
+Module1=Starter
+Module2=CotaEngine
+Module3=PdfExporter
+NumberOfFiles=0
+NumberOfLibraries=7
+NumberOfModules=3
+Version=13.3
+@EndOfDesignText@
+#Region Project Attributes
+	#ApplicationLabel: PakuMedidas
+	#VersionCode: 1
+	#VersionName: 1.0
+	#SupportedOrientations: unspecified
+	#CanInstallToExternalStorage: False
+#End Region
+
+#Region Activity Attributes
+	#FullScreen: False
+	#IncludeTitle: False
+#End Region
+
+Sub Process_Globals
+	Public xui As XUI
+	Dim CC As ContentChooser
+End Sub
+
+Sub Globals
+	' ── Paneles principales ──
+	Private pnlList As Panel
+	Private pnlEditor As Panel
+	Private CurrentPage As String
+
+	' ── Lista de proyectos ──
+	Private svList As ScrollView
+	Private svListInner As Panel
+	Private lblListTitle As Label
+	Private btnNewProject As Button
+	Private MultiSelectMode As Boolean = False
+	Private SelectedIds As List
+
+	' ── Editor ──
+	Private pnlCanvas As Panel
+	Private pnlToolbar As Panel
+	Private pnlMagnifier As Panel
+	Private xCanvas As B4XCanvas
+	Private imgMagnifier As ImageView
+
+	' Estado editor
+	Private EditProjectId As Int = -1
+	Private OriginalBitmap As Bitmap
+	Private ZoomLevel As Float = 1.0
+	Private PanX As Float = 0
+	Private PanY As Float = 0
+	Private BaseScale As Float = 1.0
+
+	' Touch
+	Private GS As Gestures
+	Private TouchMode As String = "none" ' none, pan, pinch, place_cota1, place_cota2, drag_endpoint, drag_text, drag_offset, place_box, drag_box, drag_boxhandle
+	Private TouchStartX As Float
+	Private TouchStartY As Float
+	Private LastTouchX As Float
+	Private LastTouchY As Float
+	Private PinchStartDist As Float
+	Private PinchStartZoom As Float
+
+	' Herramienta activa
+	Private ActiveTool As String = "move" ' move, cota, box, delete
+	Private btnToolCota As Button
+	Private btnToolBox As Button
+	Private btnToolMove As Button
+	Private btnToolDelete As Button
+	Private btnUndo As Button
+	Private btnRedo As Button
+	Private btnSave As Button
+	Private btnPdf As Button
+	Private btnShare As Button
+	Private btnBack As Button
+	Private lblEditorTitle As Label
+
+	' Cota en progreso
+	Private CotaP1X As Float = -1
+	Private CotaP1Y As Float = -1
+
+	' Elemento seleccionado
+	Private SelectedType As String = "" ' "cota" o "box"
+	Private SelectedIndex As Int = -1
+	Private DragPartIndex As Int = -1 ' para endpoints: 0=p1, 1=p2; para box handles: 0-3
+
+	' Magnifier
+	Private MagnifierVisible As Boolean = False
+	Private mTouchMoved As Boolean = False
+
+	' Undo/Redo
+	Private UndoStack As List
+	Private RedoStack As List
+
+	' TextInput overlay
+	Private pnlTextInput As Panel
+	Private lblTextInputPrompt As Label
+	Private edTextInput As EditText
+	Private btnTextInputOK As Button
+	Private btnTextInputCancel As Button
+	Private mTextInputAction As String   ' "rename_project","new_cota","edit_cota","new_box","edit_box"
+	Private mTextInputProjectId As Int
+	Private mTextInputElemIdx As Int
+	Private mTextInputP1X As Float
+	Private mTextInputP1Y As Float
+	Private mTextInputP2X As Float
+	Private mTextInputP2Y As Float
+End Sub
+
+Sub Activity_Create(FirstTime As Boolean)
+	If FirstTime Then
+		CC.Initialize("CC")
+		SelectedIds.Initialize
+		UndoStack.Initialize
+		RedoStack.Initialize
+	End If
+	BuildListPage
+	BuildEditorPage
+	BuildTextInputPanel
+	ShowListPage
+End Sub
+
+Sub Activity_Resume
+End Sub
+
+Sub Activity_Pause(UserClosed As Boolean)
+	If EditProjectId >= 0 Then
+		SaveCurrentProject
+	End If
+End Sub
+
+Sub Activity_KeyPress(KeyCode As Int) As Boolean
+	If KeyCode = KeyCodes.KEYCODE_BACK Then
+		If CurrentPage = "editor" Then
+			SaveCurrentProject
+			ShowListPage
+			Return True
+		End If
+	End If
+	Return False
+End Sub
+
+' ════════════════════════════════════════════════════════════════
+' ══ LIST PAGE ══════════════════════════════════════════════════
+' ════════════════════════════════════════════════════════════════
+
+Sub BuildListPage
+	pnlList.Initialize("pnlList")
+	Activity.AddView(pnlList, 0, 0, 100%x, 100%y)
+	pnlList.Color = Colors.RGB(245, 245, 245)
+
+	' Toolbar
+	Dim pnlTopBar As Panel
+	pnlTopBar.Initialize("")
+	pnlList.AddView(pnlTopBar, 0, 0, 100%x, 56dip)
+	pnlTopBar.Color = Colors.RGB(33, 150, 243)
+
+	lblListTitle.Initialize("")
+	lblListTitle.Text = "PakuMedidas"
+	lblListTitle.TextSize = 20
+	lblListTitle.TextColor = Colors.White
+	lblListTitle.Gravity = Gravity.CENTER_VERTICAL
+	pnlTopBar.AddView(lblListTitle, 16dip, 0, 200dip, 56dip)
+
+	btnNewProject.Initialize("btnNewProject")
+	btnNewProject.Text = "+ Nueva"
+	btnNewProject.TextSize = 14
+	btnNewProject.Color = Colors.RGB(76, 175, 80)
+	btnNewProject.TextColor = Colors.White
+	pnlTopBar.AddView(btnNewProject, 100%x - 120dip, 8dip, 110dip, 40dip)
+
+	' Lista scrollable
+	svList.Initialize(56dip)
+	pnlList.AddView(svList, 0, 56dip, 100%x, 100%y - 56dip)
+	svListInner = svList.Panel
+	svListInner.Color = Colors.RGB(245, 245, 245)
+End Sub
+
+Sub BuildTextInputPanel
+	Dim panW As Int = 300dip
+	Dim panH As Int = 160dip
+	Dim cx As Int = (100%x - panW) / 2
+	Dim cy As Int = (100%y - panH) / 2
+	pnlTextInput.Initialize("")
+	pnlTextInput.Color = Colors.RGB(40, 40, 40)
+	pnlTextInput.Visible = False
+	Activity.AddView(pnlTextInput, cx, cy, panW, panH)
+
+	lblTextInputPrompt.Initialize("")
+	lblTextInputPrompt.TextColor = Colors.White
+	lblTextInputPrompt.TextSize = 14
+	pnlTextInput.AddView(lblTextInputPrompt, 12dip, 12dip, panW - 24dip, 32dip)
+
+	edTextInput.Initialize("edTextInput")
+	edTextInput.SingleLine = True
+	edTextInput.TextSize = 14
+	edTextInput.TextColor = Colors.White
+	pnlTextInput.AddView(edTextInput, 12dip, 52dip, panW - 24dip, 40dip)
+
+	btnTextInputOK.Initialize("btnTextInputOK")
+	btnTextInputOK.Text = "OK"
+	btnTextInputOK.TextSize = 14
+	pnlTextInput.AddView(btnTextInputOK, 12dip, 104dip, (panW - 36dip) / 2, 40dip)
+
+	btnTextInputCancel.Initialize("btnTextInputCancel")
+	btnTextInputCancel.Text = "Cancelar"
+	btnTextInputCancel.TextSize = 12
+	pnlTextInput.AddView(btnTextInputCancel, 24dip + (panW - 36dip) / 2, 104dip, (panW - 36dip) / 2, 40dip)
+End Sub
+
+Sub ShowTextInput(Prompt As String, Default As String, Action As String)
+	mTextInputAction = Action
+	lblTextInputPrompt.Text = Prompt
+	edTextInput.Text = Default
+	edTextInput.SelectAll
+	pnlTextInput.BringToFront
+	pnlTextInput.Visible = True
+	edTextInput.RequestFocus
+	' Forzar apertura del teclado
+	Try
+		Dim joET As JavaObject = edTextInput
+		joET.RunMethod("requestFocus", Null)
+		Dim ctx As JavaObject
+		ctx.InitializeContext
+		Dim imm As JavaObject = ctx.RunMethod("getSystemService", Array("input_method"))
+		imm.RunMethod("showSoftInput", Array(joET, 1))
+	Catch
+	End Try
+End Sub
+
+Sub btnTextInputOK_Click
+	pnlTextInput.Visible = False
+	Dim txt As String = edTextInput.Text
+	If txt = "" Then Return
+	Select mTextInputAction
+		Case "rename_project"
+			Starter.DB.ExecNonQuery2("UPDATE projects SET name = ?, modified_at = ? WHERE id = ?", _
+				Array As String(txt, DateTime.Now, mTextInputProjectId))
+			RefreshProjectList
+		Case "new_cota"
+			SaveUndoState
+			CotaEngine.AddCota(mTextInputP1X, mTextInputP1Y, mTextInputP2X, mTextInputP2Y, txt, 0, -30, 25, Colors.RGB(255, 204, 0), 3, 14)
+			TouchMode = "none"
+			RenderAll
+		Case "edit_cota"
+			SaveUndoState
+			CotaEngine.SetCotaText(mTextInputElemIdx, txt)
+			RenderAll
+		Case "new_box"
+			CotaEngine.SetTextBoxText(mTextInputElemIdx, txt)
+			RenderAll
+		Case "edit_box"
+			SaveUndoState
+			CotaEngine.SetTextBoxText(mTextInputElemIdx, txt)
+			RenderAll
+	End Select
+	mTextInputAction = ""
+End Sub
+
+Sub btnTextInputCancel_Click
+	pnlTextInput.Visible = False
+	mTextInputAction = ""
+	If mTextInputAction = "new_cota" Then TouchMode = "none"
+End Sub
+
+Sub ShowListPage
+	CurrentPage = "main"
+	pnlEditor.Visible = False
+	pnlList.Visible = True
+	RefreshProjectList
+End Sub
+
+Sub RefreshProjectList
+	' Limpiar lista anterior
+	For i = svListInner.NumberOfViews - 1 To 0 Step -1
+		svListInner.RemoveViewAt(i)
+	Next
+	Dim itemH As Int = 96dip
+	Dim yPos As Int = 0
+	Dim rs As ResultSet = Starter.DB.ExecQuery("SELECT id, name, thumb_path, modified_at FROM projects ORDER BY modified_at DESC")
+	Do While rs.NextRow
+		Dim id As Int = rs.GetInt("id")
+		Dim name As String = rs.GetString("name")
+		Dim thumb As String = rs.GetString("thumb_path")
+		Dim modAt As Long = rs.GetLong("modified_at")
+
+		Dim pnl As Panel
+		pnl.Initialize("pnlItem")
+		pnl.Color = Colors.White
+		pnl.Tag = id
+		svListInner.AddView(pnl, 0, yPos, 100%x, itemH)
+
+		' Divisor
+		Dim div As Panel
+		div.Initialize("")
+		div.Color = Colors.RGB(220, 220, 220)
+		svListInner.AddView(div, 0, yPos + itemH - 1, 100%x, 1)
+
+		' Thumbnail
+		If thumb <> "" And thumb <> Null And File.Exists(File.DirInternal, thumb) Then
+			Dim iv As ImageView
+			iv.Initialize("")
+			iv.Bitmap = LoadBitmapResize(File.DirInternal, thumb, 80dip, 80dip, True)
+			iv.Gravity = Gravity.FILL
+			pnl.AddView(iv, 8dip, 8dip, 80dip, 80dip)
+		End If
+
+		Dim lbl As Label
+		lbl.Initialize("")
+		lbl.Text = name
+		lbl.TextSize = 16
+		lbl.TextColor = Colors.RGB(33, 33, 33)
+		lbl.Gravity = Gravity.CENTER_VERTICAL
+		pnl.AddView(lbl, 100dip, 8dip, 100%x - 160dip, 40dip)
+
+		Dim lblDate As Label
+		lblDate.Initialize("")
+		DateTime.DateFormat = "dd/MM/yyyy HH:mm"
+		lblDate.Text = DateTime.Date(modAt)
+		lblDate.TextSize = 12
+		lblDate.TextColor = Colors.Gray
+		lblDate.Gravity = Gravity.CENTER_VERTICAL
+		pnl.AddView(lblDate, 100dip, 48dip, 200dip, 30dip)
+
+		yPos = yPos + itemH
+	Loop
+	rs.Close
+	svList.Panel.Height = Max(yPos, 100%y - 56dip)
+End Sub
+
+Sub pnlItem_Click
+	Dim v As Panel = Sender
+	Dim projectId As Int
+	projectId = v.Tag
+	OpenEditor(projectId)
+End Sub
+
+Sub pnlItem_LongClick
+	Dim v As Panel = Sender
+	Dim projectId As Int
+	projectId = v.Tag
+	Dim result As Int = InputList(Array("Abrir", "Renombrar", "Compartir PDF", "Eliminar"), "Proyecto", -1)
+	Select result
+		Case 0
+			OpenEditor(projectId)
+		Case 1
+			mTextInputProjectId = projectId
+			ShowTextInput("Nuevo nombre:", GetProjectName(projectId), "rename_project")
+		Case 2
+			ShareProjectPdf(projectId)
+		Case 3
+			Dim confirm As Int = Msgbox2("Eliminar este proyecto?", "Confirmar", "Eliminar", "", "Cancelar", Null)
+			If confirm = DialogResponse.POSITIVE Then
+				DeleteProject(projectId)
+				RefreshProjectList
+			End If
+	End Select
+End Sub
+
+Sub btnNewProject_Click
+	CC.Show("image/*", "Selecciona una foto")
+End Sub
+
+Sub CC_Result(Success As Boolean, Dir As String, FileName As String)
+	If Success = False Then Return
+
+	' Cargar y redimensionar
+	Dim bmp As Bitmap = LoadBitmap(Dir, FileName)
+	If bmp.Width > 1920 Or bmp.Height > 1080 Then
+		Dim ratio As Float = Min(1920.0 / bmp.Width, 1080.0 / bmp.Height)
+		Dim newW As Int = bmp.Width * ratio
+		Dim newH As Int = bmp.Height * ratio
+		Dim resized As Bitmap
+		resized.InitializeMutable(newW, newH)
+		Dim cvs As Canvas
+		cvs.Initialize2(resized)
+		Dim srcRect As Rect : srcRect.Initialize(0, 0, bmp.Width, bmp.Height)
+		Dim dstRect As Rect : dstRect.Initialize(0, 0, newW, newH)
+		cvs.DrawBitmap(bmp, srcRect, dstRect)
+		bmp = resized
+	End If
+
+	' Guardar imagen
+	Dim imgName As String = "img_" & DateTime.Now & ".jpg"
+	Dim out As OutputStream = File.OpenOutput(File.DirInternal, imgName, False)
+	bmp.WriteToStream(out, 95, "JPEG")
+	out.Close
+
+	' Crear thumbnail
+	Dim thumbName As String = "thumb_" & DateTime.Now & ".jpg"
+	Dim thumbBmp As Bitmap = CreateScaledBitmap(bmp, 160, 160)
+	Dim out2 As OutputStream = File.OpenOutput(File.DirInternal, thumbName, False)
+	thumbBmp.WriteToStream(out2, 80, "JPEG")
+	out2.Close
+
+	' Nombre del proyecto desde nombre archivo
+	Dim projName As String = GetContentDisplayName(Dir, FileName)
+	If projName.Contains(".") Then projName = projName.SubString2(0, projName.LastIndexOf("."))
+	If projName = "" Or projName.StartsWith("content") Then projName = "Proyecto " & DateTime.Date(DateTime.Now)
+	If projName.Length > 30 Then projName = projName.SubString2(0, 30)
+
+	' Insertar en DB
+	Dim emptyJson As String = $"{"cotas":[],"textBoxes":[]}"$
+	Starter.DB.ExecNonQuery2("INSERT INTO projects (name, image_path, thumb_path, annotations_json, created_at, modified_at) VALUES (?,?,?,?,?,?)", _
+		Array As String(projName, imgName, thumbName, emptyJson, DateTime.Now, DateTime.Now))
+
+	' Obtener ID del nuevo proyecto
+	Dim rs As ResultSet = Starter.DB.ExecQuery("SELECT last_insert_rowid() AS id")
+	rs.NextRow
+	Dim newId As Int = rs.GetInt("id")
+	rs.Close
+
+	OpenEditor(newId)
+End Sub
+
+Sub CreateScaledBitmap(src As Bitmap, MaxW As Int, MaxH As Int) As Bitmap
+	Dim ratio As Float = Min(MaxW / src.Width, MaxH / src.Height)
+	Dim w As Int = Max(1, src.Width * ratio)
+	Dim h As Int = Max(1, src.Height * ratio)
+	Dim result As Bitmap
+	result.InitializeMutable(w, h)
+	Dim cvs As Canvas
+	cvs.Initialize2(result)
+	Dim srcR As Rect : srcR.Initialize(0, 0, src.Width, src.Height)
+	Dim dstR As Rect : dstR.Initialize(0, 0, w, h)
+	cvs.DrawBitmap(src, srcR, dstR)
+	Return result
+End Sub
+
+Sub GetContentDisplayName(Dir As String, FileName As String) As String
+	Try
+		Dim uriStr As String
+		If FileName.StartsWith("content://") Then
+			uriStr = FileName
+		Else If Dir.StartsWith("content://") Then
+			uriStr = Dir
+		Else
+			Return FileName
+		End If
+		Dim joUri As JavaObject
+		joUri.InitializeStatic("android.net.Uri")
+		Dim uri As Object = joUri.RunMethod("parse", Array(uriStr))
+		Dim context As JavaObject
+		context.InitializeContext
+		Dim cr As JavaObject = context.RunMethod("getContentResolver", Null)
+		Dim cols(1) As String
+		cols(0) = "_display_name"
+		Dim cursor As JavaObject = cr.RunMethod("query", Array(uri, cols, Null, Null, Null))
+		If cursor.IsInitialized Then
+			If cursor.RunMethod("moveToFirst", Null) Then
+				Dim name As String = cursor.RunMethod("getString", Array(0))
+				cursor.RunMethod("close", Null)
+				Return name
+			End If
+			cursor.RunMethod("close", Null)
+		End If
+	Catch
+		Log("GetContentDisplayName error: " & LastException)
+	End Try
+	Return FileName
+End Sub
+
+Sub GetProjectName(id As Int) As String
+	Dim rs As ResultSet = Starter.DB.ExecQuery2("SELECT name FROM projects WHERE id = ?", Array As String(id))
+	If rs.NextRow Then
+		Dim n As String = rs.GetString("name")
+		rs.Close
+		Return n
+	End If
+	rs.Close
+	Return ""
+End Sub
+
+Sub DeleteProject(id As Int)
+	Dim rs As ResultSet = Starter.DB.ExecQuery2("SELECT image_path, thumb_path FROM projects WHERE id = ?", Array As String(id))
+	If rs.NextRow Then
+		Dim img As String = rs.GetString("image_path")
+		Dim thumb As String = rs.GetString("thumb_path")
+		If img <> "" And File.Exists(File.DirInternal, img) Then File.Delete(File.DirInternal, img)
+		If thumb <> "" And File.Exists(File.DirInternal, thumb) Then File.Delete(File.DirInternal, thumb)
+	End If
+	rs.Close
+	Starter.DB.ExecNonQuery2("DELETE FROM projects WHERE id = ?", Array As String(id))
+End Sub
+
+' ════════════════════════════════════════════════════════════════
+' ══ EDITOR PAGE ════════════════════════════════════════════════
+' ════════════════════════════════════════════════════════════════
+
+Sub BuildEditorPage
+	pnlEditor.Initialize("pnlEditor")
+	Activity.AddView(pnlEditor, 0, 0, 100%x, 100%y)
+	pnlEditor.Color = Colors.RGB(30, 30, 30)
+
+	' ── Top toolbar ──
+	Dim topH As Int = 48dip
+	Dim pnlTop As Panel
+	pnlTop.Initialize("")
+	pnlEditor.AddView(pnlTop, 0, 0, 100%x, topH)
+	pnlTop.Color = Colors.RGB(50, 50, 50)
+
+	btnBack.Initialize("btnBack")
+	btnBack.Text = Chr(0x2190) ' ←
+	btnBack.TextSize = 22
+	btnBack.Color = Colors.Transparent
+	btnBack.TextColor = Colors.White
+	pnlTop.AddView(btnBack, 0, 0, 48dip, topH)
+
+	lblEditorTitle.Initialize("")
+	lblEditorTitle.TextSize = 14
+	lblEditorTitle.TextColor = Colors.White
+	lblEditorTitle.Gravity = Gravity.CENTER_VERTICAL
+	pnlTop.AddView(lblEditorTitle, 50dip, 0, 150dip, topH)
+
+	Dim rightX As Int = 100%x
+
+	btnShare.Initialize("btnShare")
+	btnShare.Text = Chr(0x2197) ' ↗ share
+	btnShare.TextSize = 18
+	btnShare.Color = Colors.Transparent
+	btnShare.TextColor = Colors.White
+	rightX = rightX - 48dip
+	pnlTop.AddView(btnShare, rightX, 0, 48dip, topH)
+
+	btnPdf.Initialize("btnPdf")
+	btnPdf.Text = "PDF"
+	btnPdf.TextSize = 12
+	btnPdf.Color = Colors.Transparent
+	btnPdf.TextColor = Colors.White
+	rightX = rightX - 52dip
+	pnlTop.AddView(btnPdf, rightX, 0, 52dip, topH)
+
+	btnSave.Initialize("btnSave")
+	btnSave.Text = "JPG"
+	btnSave.TextSize = 13
+	btnSave.Color = Colors.Transparent
+	btnSave.TextColor = Colors.White
+	rightX = rightX - 58dip
+	pnlTop.AddView(btnSave, rightX, 0, 58dip, topH)
+
+	' ── Bottom toolbar ──
+	Dim botH As Int = 52dip
+	Dim pnlBot As Panel
+	pnlBot.Initialize("")
+	pnlEditor.AddView(pnlBot, 0, 100%y - botH, 100%x, botH)
+	pnlBot.Color = Colors.RGB(50, 50, 50)
+
+	Dim toolW As Int = 64dip
+	Dim toolX As Int = 8dip
+
+	btnToolMove.Initialize("btnToolMove")
+	btnToolMove.Text = "Mover"
+	btnToolMove.TextSize = 11
+	btnToolMove.Color = Colors.RGB(33, 150, 243)
+	btnToolMove.TextColor = Colors.White
+	pnlBot.AddView(btnToolMove, toolX, 6dip, toolW, 40dip)
+	toolX = toolX + toolW + 4dip
+
+	btnToolCota.Initialize("btnToolCota")
+	btnToolCota.Text = "Cota"
+	btnToolCota.TextSize = 11
+	btnToolCota.Color = Colors.RGB(80, 80, 80)
+	btnToolCota.TextColor = Colors.White
+	pnlBot.AddView(btnToolCota, toolX, 6dip, toolW, 40dip)
+	toolX = toolX + toolW + 4dip
+
+	btnToolBox.Initialize("btnToolBox")
+	btnToolBox.Text = "Caja"
+	btnToolBox.TextSize = 11
+	btnToolBox.Color = Colors.RGB(80, 80, 80)
+	btnToolBox.TextColor = Colors.White
+	pnlBot.AddView(btnToolBox, toolX, 6dip, toolW, 40dip)
+	toolX = toolX + toolW + 4dip
+
+	btnToolDelete.Initialize("btnToolDelete")
+	btnToolDelete.Text = "Borrar"
+	btnToolDelete.TextSize = 11
+	btnToolDelete.Color = Colors.RGB(80, 80, 80)
+	btnToolDelete.TextColor = Colors.White
+	pnlBot.AddView(btnToolDelete, toolX, 6dip, toolW, 40dip)
+
+	' Undo/Redo a la derecha
+	btnRedo.Initialize("btnRedo")
+	btnRedo.Text = "Red"
+	btnRedo.TextSize = 11
+	btnRedo.Color = Colors.RGB(80, 80, 80)
+	btnRedo.TextColor = Colors.White
+	pnlBot.AddView(btnRedo, 100%x - 56dip, 6dip, 50dip, 40dip)
+
+	btnUndo.Initialize("btnUndo")
+	btnUndo.Text = "Des"
+	btnUndo.TextSize = 11
+	btnUndo.Color = Colors.RGB(80, 80, 80)
+	btnUndo.TextColor = Colors.White
+	pnlBot.AddView(btnUndo, 100%x - 114dip, 6dip, 50dip, 40dip)
+
+	' ── Canvas panel ──
+	pnlCanvas.Initialize("pnlCanvas")
+	pnlEditor.AddView(pnlCanvas, 0, topH, 100%x, 100%y - topH - botH)
+	pnlCanvas.Color = Colors.RGB(40, 40, 40)
+
+	' ── Magnifier ──
+	pnlMagnifier.Initialize("")
+	pnlMagnifier.Color = Colors.RGB(30, 30, 30)
+	pnlMagnifier.Visible = False
+	imgMagnifier.Initialize("")
+	pnlMagnifier.AddView(imgMagnifier, 2dip, 2dip, 116dip, 116dip)
+	pnlEditor.AddView(pnlMagnifier, 20dip, 60dip, 120dip, 120dip)
+
+	' Gestures para multi-touch
+	GS.SetOnTouchListener(pnlCanvas, "Canvas_Touch")
+
+	pnlEditor.Visible = False
+End Sub
+
+Sub OpenEditor(ProjectId As Int)
+	EditProjectId = ProjectId
+
+	' Cargar datos del proyecto
+	Dim rs As ResultSet = Starter.DB.ExecQuery2("SELECT * FROM projects WHERE id = ?", Array As String(ProjectId))
+	If rs.NextRow = False Then
+		rs.Close
+		Return
+	End If
+
+	Dim imgPath As String = rs.GetString("image_path")
+	Dim jsonStr As String = rs.GetString("annotations_json")
+	Dim projName As String = rs.GetString("name")
+	rs.Close
+
+	lblEditorTitle.Text = projName
+
+	' Cargar imagen
+	If File.Exists(File.DirInternal, imgPath) Then
+		OriginalBitmap = LoadBitmap(File.DirInternal, imgPath)
+	Else
+		ToastMessageShow("Imagen no encontrada", True)
+		Return
+	End If
+
+	' Cargar anotaciones
+	CotaEngine.LoadFromJson(jsonStr)
+
+	' Reset view
+	ZoomLevel = 1.0
+	PanX = 0
+	PanY = 0
+	BaseScale = Min(pnlCanvas.Width / OriginalBitmap.Width, pnlCanvas.Height / OriginalBitmap.Height)
+
+	' Reset state
+	ActiveTool = "move"
+	UpdateToolButtons
+	TouchMode = "none"
+	CotaP1X = -1
+	SelectedType = ""
+	SelectedIndex = -1
+	UndoStack.Initialize
+	RedoStack.Initialize
+
+	' Init canvas
+	xCanvas.Initialize(pnlCanvas)
+
+	' Show editor
+	CurrentPage = "editor"
+	pnlList.Visible = False
+	pnlEditor.Visible = True
+
+	RenderAll
+End Sub
+
+' ── Tool buttons ──
+
+Sub UpdateToolButtons
+	Dim tools() As String = Array As String("move", "cota", "box", "delete")
+	Dim btns() As Button = Array As Button(btnToolMove, btnToolCota, btnToolBox, btnToolDelete)
+	For i = 0 To tools.Length - 1
+		If tools(i) = ActiveTool Then
+			btns(i).Color = Colors.RGB(33, 150, 243)
+		Else
+			btns(i).Color = Colors.RGB(80, 80, 80)
+		End If
+	Next
+End Sub
+
+Sub btnToolMove_Click
+	ActiveTool = "move"
+	SelectedType = ""
+	SelectedIndex = -1
+	CotaP1X = -1
+	UpdateToolButtons
+	RenderAll
+End Sub
+
+Sub btnToolCota_Click
+	ActiveTool = "cota"
+	CotaP1X = -1
+	TouchMode = "none"
+	SelectedType = ""
+	SelectedIndex = -1
+	UpdateToolButtons
+	RenderAll
+End Sub
+
+Sub btnToolBox_Click
+	ActiveTool = "box"
+	SelectedType = ""
+	SelectedIndex = -1
+	CotaP1X = -1
+	UpdateToolButtons
+	RenderAll
+End Sub
+
+Sub btnToolDelete_Click
+	ActiveTool = "delete"
+	CotaP1X = -1
+	UpdateToolButtons
+	RenderAll
+End Sub
+
+Sub btnBack_Click
+	SaveCurrentProject
+	ShowListPage
+End Sub
+
+Sub btnUndo_Click
+	If UndoStack.Size > 0 Then
+		PushUndo(RedoStack)
+		Dim json As String = UndoStack.Get(UndoStack.Size - 1)
+		UndoStack.RemoveAt(UndoStack.Size - 1)
+		CotaEngine.LoadFromJson(json)
+		RenderAll
+	End If
+End Sub
+
+Sub btnRedo_Click
+	If RedoStack.Size > 0 Then
+		PushUndo(UndoStack)
+		Dim json As String = RedoStack.Get(RedoStack.Size - 1)
+		RedoStack.RemoveAt(RedoStack.Size - 1)
+		CotaEngine.LoadFromJson(json)
+		RenderAll
+	End If
+End Sub
+
+Sub PushUndo(stack As List)
+	Dim json As String = CotaEngine.ToJson
+	stack.Add(json)
+	If stack.Size > 30 Then stack.RemoveAt(0)
+End Sub
+
+Sub SaveUndoState
+	PushUndo(UndoStack)
+	RedoStack.Initialize ' limpiar redo al hacer nueva accion
+End Sub
+
+' ── Save / Export / Share ──
+
+Sub btnSave_Click
+	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
+	SaveCurrentProject
+
+	' Render to full-res bitmap
+	Dim outBmp As Bitmap
+	outBmp.InitializeMutable(OriginalBitmap.Width, OriginalBitmap.Height)
+	Dim cvs As Canvas
+	cvs.Initialize2(outBmp)
+	Dim r As Rect : r.Initialize(0, 0, OriginalBitmap.Width, OriginalBitmap.Height)
+	cvs.DrawBitmap(OriginalBitmap, r, r)
+	CotaEngine.RenderOnCanvas(cvs, 1.0, 0, 0, OriginalBitmap.Width, OriginalBitmap.Height)
+
+	' Save to shared folder
+	Dim sharedDir As String = File.Combine(File.DirInternal, "shared")
+	File.MakeDir(File.DirInternal, "shared")
+	Dim fileName As String = "PakuMedidas_" & DateTime.Now & ".jpg"
+	Dim out As OutputStream = File.OpenOutput(sharedDir, fileName, False)
+	outBmp.WriteToStream(out, 95, "JPEG")
+	out.Close
+
+	ToastMessageShow("JPG guardado: " & fileName, True)
+End Sub
+
+Sub btnPdf_Click
+	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
+	SaveCurrentProject
+
+	Dim sharedDir As String = File.Combine(File.DirInternal, "shared")
+	File.MakeDir(File.DirInternal, "shared")
+	Dim fileName As String = "PakuMedidas_" & DateTime.Now & ".pdf"
+
+	PdfExporter.ExportPdf(sharedDir, fileName, OriginalBitmap, CotaEngine.GetCotas, CotaEngine.GetTextBoxes)
+	ToastMessageShow("PDF guardado: " & fileName, True)
+End Sub
+
+Sub btnShare_Click
+	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
+	SaveCurrentProject
+
+	' Generar PDF primero
+	Dim sharedDir As String = File.Combine(File.DirInternal, "shared")
+	File.MakeDir(File.DirInternal, "shared")
+	Dim fileName As String = "PakuMedidas_" & EditProjectId & ".pdf"
+	PdfExporter.ExportPdf(sharedDir, fileName, OriginalBitmap, CotaEngine.GetCotas, CotaEngine.GetTextBoxes)
+
+	' Compartir via intent
+	ShareFile(sharedDir, fileName, "application/pdf")
+End Sub
+
+Sub ShareProjectPdf(projectId As Int)
+	' Cargar datos, generar PDF y compartir
+	Dim rs As ResultSet = Starter.DB.ExecQuery2("SELECT image_path, annotations_json FROM projects WHERE id = ?", Array As String(projectId))
+	If rs.NextRow = False Then
+		rs.Close
+		Return
+	End If
+	Dim imgPath As String = rs.GetString("image_path")
+	Dim jsonStr As String = rs.GetString("annotations_json")
+	rs.Close
+
+	If File.Exists(File.DirInternal, imgPath) = False Then
+		ToastMessageShow("Imagen no encontrada", True)
+		Return
+	End If
+
+	Dim bmp As Bitmap = LoadBitmap(File.DirInternal, imgPath)
+	CotaEngine.LoadFromJson(jsonStr)
+
+	Dim sharedDir As String = File.Combine(File.DirInternal, "shared")
+	File.MakeDir(File.DirInternal, "shared")
+	Dim fileName As String = "PakuMedidas_" & projectId & ".pdf"
+	PdfExporter.ExportPdf(sharedDir, fileName, bmp, CotaEngine.GetCotas, CotaEngine.GetTextBoxes)
+
+	ShareFile(sharedDir, fileName, "application/pdf")
+End Sub
+
+Sub ShareFile(Dir As String, FileName As String, MimeType As String)
+	Try
+		Dim filePath As String = File.Combine(Dir, FileName)
+
+		Dim build As JavaObject
+		build.InitializeStatic("android.os.Build$VERSION")
+		Dim sdk As Int = build.GetField("SDK_INT")
+
+		Dim shareUri As Object
+
+		If sdk >= 29 Then
+			' Android 10+: copiar a MediaStore.Downloads y compartir desde ahi
+			shareUri = CopyToMediaStore(filePath, FileName, MimeType)
+		Else
+			' Android 7-9: deshabilitar StrictMode para permitir file:// URIs
+			Dim smBuilder As JavaObject
+			smBuilder.InitializeNewInstance("android.os.StrictMode$VmPolicy$Builder", Null)
+			Dim policy As Object = smBuilder.RunMethod("build", Null)
+			Dim sm As JavaObject
+			sm.InitializeStatic("android.os.StrictMode")
+			sm.RunMethod("setVmPolicy", Array(policy))
+			Dim joUri As JavaObject
+			joUri.InitializeStatic("android.net.Uri")
+			Dim f As JavaObject
+			f.InitializeNewInstance("java.io.File", Array(filePath))
+			shareUri = joUri.RunMethod("fromFile", Array(f))
+		End If
+
+		If shareUri = Null Then
+			ToastMessageShow("Error preparando archivo para compartir", True)
+			Return
+		End If
+
+		Dim i As Intent
+		i.Initialize(i.ACTION_SEND, "")
+		i.SetType(MimeType)
+		i.PutExtra("android.intent.extra.STREAM", shareUri)
+		i.Flags = 1 ' FLAG_GRANT_READ_URI_PERMISSION
+		Dim jIntent As JavaObject
+		jIntent.InitializeStatic("android.content.Intent")
+		Dim chooser As Object = jIntent.RunMethod("createChooser", Array(i, "Enviar"))
+		StartActivity(chooser)
+	Catch
+		Log("Error sharing: " & LastException)
+		ToastMessageShow("Error al compartir: " & LastException.Message, True)
+	End Try
+End Sub
+
+Sub CopyToMediaStore(FilePath As String, FileName As String, MimeType As String) As Object
+	Try
+		Dim context As JavaObject
+		context.InitializeContext
+		Dim cr As JavaObject = context.RunMethod("getContentResolver", Null)
+
+		Dim cv As JavaObject
+		cv.InitializeNewInstance("android.content.ContentValues", Null)
+		cv.RunMethod("put", Array("_display_name", FileName))
+		cv.RunMethod("put", Array("mime_type", MimeType))
+
+		Dim msDownloads As JavaObject
+		msDownloads.InitializeStatic("android.provider.MediaStore$Downloads")
+		Dim dlUri As Object = cr.RunMethod("insert", Array(msDownloads.GetField("EXTERNAL_CONTENT_URI"), cv))
+		If dlUri = Null Then Return Null
+
+		' Copiar bytes con loop manual (transferTo requiere API 33+)
+		Dim fis As JavaObject
+		fis.InitializeNewInstance("java.io.FileInputStream", Array(FilePath))
+		Dim os As JavaObject = cr.RunMethod("openOutputStream", Array(dlUri))
+		Dim buf(8192) As Byte
+		Dim startOff As Int = 0
+		Dim nObj As Object = fis.RunMethod("read", Array(buf))
+		Dim n As Int = nObj
+		Do While n > 0
+			os.RunMethod("write", Array(buf, startOff, n))
+			nObj = fis.RunMethod("read", Array(buf))
+			n = nObj
+		Loop
+		fis.RunMethod("close", Null)
+		os.RunMethod("flush", Null)
+		os.RunMethod("close", Null)
+
+		Return dlUri
+	Catch
+		Log("CopyToMediaStore error: " & LastException)
+		Return Null
+	End Try
+End Sub
+
+Sub SaveCurrentProject
+	If EditProjectId < 0 Then Return
+	Dim json As String = CotaEngine.ToJson
+	Starter.DB.ExecNonQuery2("UPDATE projects SET annotations_json = ?, modified_at = ? WHERE id = ?", _
+		Array As String(json, DateTime.Now, EditProjectId))
+End Sub
+
+' ════════════════════════════════════════════════════════════════
+' ══ CANVAS RENDERING ═══════════════════════════════════════════
+' ════════════════════════════════════════════════════════════════
+
+Sub RenderAll
+	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
+
+	Dim bc As B4XCanvas = xCanvas
+	bc.ClearRect(bc.TargetRect)
+
+	' Dibujar imagen
+	Dim s As Float = BaseScale * ZoomLevel
+	Dim imgW As Float = OriginalBitmap.Width * s
+	Dim imgH As Float = OriginalBitmap.Height * s
+	Dim ox As Float = (pnlCanvas.Width - imgW) / 2 + PanX
+	Dim oy As Float = (pnlCanvas.Height - imgH) / 2 + PanY
+
+	Dim dstRect As B4XRect
+	dstRect.Initialize(ox, oy, ox + imgW, oy + imgH)
+	bc.DrawBitmap(OriginalBitmap, dstRect)
+
+	' Dibujar anotaciones
+	CotaEngine.RenderOnB4XCanvas(bc, s, ox, oy, SelectedType, SelectedIndex)
+
+	' Dibujar punto P1 si estamos colocando cota
+	If CotaP1X >= 0 Then
+		Dim sx As Float = CotaP1X * s + ox
+		Dim sy As Float = CotaP1Y * s + oy
+		bc.DrawCircle(sx, sy, 6dip, xui.Color_Red, True, 0)
+		bc.DrawCircle(sx, sy, 8dip, xui.Color_White, False, 2dip)
+	End If
+
+	bc.Invalidate
+End Sub
+
+' Conversiones coordenadas
+Sub ImgToScreen(ix As Float, iy As Float) As Float()
+	Dim s As Float = BaseScale * ZoomLevel
+	Dim ox As Float = (pnlCanvas.Width - OriginalBitmap.Width * s) / 2 + PanX
+	Dim oy As Float = (pnlCanvas.Height - OriginalBitmap.Height * s) / 2 + PanY
+	Return Array As Float(ix * s + ox, iy * s + oy)
+End Sub
+
+Sub ScreenToImg(sx As Float, sy As Float) As Float()
+	Dim s As Float = BaseScale * ZoomLevel
+	Dim ox As Float = (pnlCanvas.Width - OriginalBitmap.Width * s) / 2 + PanX
+	Dim oy As Float = (pnlCanvas.Height - OriginalBitmap.Height * s) / 2 + PanY
+	Return Array As Float((sx - ox) / s, (sy - oy) / s)
+End Sub
+
+' ════════════════════════════════════════════════════════════════
+' ══ TOUCH HANDLING ═════════════════════════════════════════════
+' ════════════════════════════════════════════════════════════════
+
+Sub Canvas_Touch(View As Object, PointerID As Int, Action As Int, X As Float, Y As Float)
+	Dim pointerCount As Int = GS.GetPointerCount
+
+	Select Action
+		Case 0 ' ACTION_DOWN
+			HandleTouchDown(X, Y, pointerCount)
+		Case 2 ' ACTION_MOVE
+			HandleTouchMove(X, Y, pointerCount)
+		Case 1, 3 ' ACTION_UP, ACTION_CANCEL
+			HandleTouchUp(X, Y)
+	End Select
+End Sub
+
+Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
+	TouchStartX = X
+	TouchStartY = Y
+	LastTouchX = X
+	LastTouchY = Y
+	mTouchMoved = False
+
+	If PointerCount >= 2 Then
+		' Pinch zoom
+		Dim x2 As Float = GS.GetX(1)
+		Dim y2 As Float = GS.GetY(1)
+		PinchStartDist = Sqrt(Power(X - x2, 2) + Power(Y - y2, 2))
+		PinchStartZoom = ZoomLevel
+		TouchMode = "pinch"
+		HideMagnifier
+		Return
+	End If
+
+	Dim imgPt() As Float = ScreenToImg(X, Y)
+	Dim ix As Float = imgPt(0)
+	Dim iy As Float = imgPt(1)
+
+	Select ActiveTool
+		Case "move"
+			' Hit test para elementos
+			Dim hit As Map = CotaEngine.HitTest(ix, iy, 20 / (BaseScale * ZoomLevel))
+			If hit.Get("type") <> "" Then
+				SelectedType = hit.Get("type")
+				SelectedIndex = hit.Get("index")
+				DragPartIndex = hit.Get("part")
+				TouchMode = "drag_" & hit.Get("dragMode")
+				SaveUndoState
+				RenderAll
+			Else
+				SelectedType = ""
+				SelectedIndex = -1
+				TouchMode = "pan"
+				RenderAll
+			End If
+
+		Case "cota"
+			If CotaP1X < 0 Then
+				' Primer punto
+				CotaP1X = ix
+				CotaP1Y = iy
+				TouchMode = "place_cota1"
+				ShowMagnifier(X, Y, ix, iy)
+			Else
+				' Segundo punto
+				TouchMode = "place_cota2"
+				ShowMagnifier(X, Y, ix, iy)
+			End If
+
+		Case "box"
+			SaveUndoState
+			Dim boxW As Float = 200
+			Dim boxH As Float = 60
+			Dim tlx As Float = ix - boxW/2 : Dim tly As Float = iy - boxH/2
+			Dim brx As Float = ix + boxW/2 : Dim bry As Float = iy + boxH/2
+			Dim semiWhite As Int = Colors.ARGB(180, 255, 255, 255)
+			CotaEngine.AddTextBox(tlx, tly, brx, tly, brx, bry, tlx, bry, "Texto", semiWhite, Colors.Black, Colors.Black, 14)
+			SelectedType = "box"
+			SelectedIndex = CotaEngine.GetTextBoxes.Size - 1
+			ActiveTool = "move"
+			UpdateToolButtons
+			RenderAll
+			' Pedir texto inmediatamente
+			mTextInputElemIdx = SelectedIndex
+			ShowTextInput("Texto:", "Texto", "new_box")
+
+		Case "delete"
+			Dim hit As Map = CotaEngine.HitTest(ix, iy, 20 / (BaseScale * ZoomLevel))
+			If hit.Get("type") <> "" Then
+				SaveUndoState
+				CotaEngine.DeleteElement(hit.Get("type"), hit.Get("index"))
+				SelectedType = ""
+				SelectedIndex = -1
+				RenderAll
+			End If
+	End Select
+End Sub
+
+Sub HandleTouchMove(X As Float, Y As Float, PointerCount As Int)
+	If TouchMode = "pinch" And PointerCount >= 2 Then
+		Dim x2 As Float = GS.GetX(1)
+		Dim y2 As Float = GS.GetY(1)
+		Dim dist As Float = Sqrt(Power(X - x2, 2) + Power(Y - y2, 2))
+		If PinchStartDist > 10 Then
+			ZoomLevel = PinchStartZoom * (dist / PinchStartDist)
+			ZoomLevel = Max(0.2, Min(ZoomLevel, 10.0))
+			RenderAll
+		End If
+		Return
+	End If
+
+	Dim moveDist As Float = Sqrt(Power(X - TouchStartX, 2) + Power(Y - TouchStartY, 2))
+	If moveDist > 12dip Then mTouchMoved = True
+	Dim dx As Float = X - LastTouchX
+	Dim dy As Float = Y - LastTouchY
+	LastTouchX = X
+	LastTouchY = Y
+
+	Select TouchMode
+		Case "pan"
+			PanX = PanX + dx
+			PanY = PanY + dy
+			RenderAll
+
+		Case "place_cota1"
+			Dim imgPt() As Float = ScreenToImg(X, Y)
+			CotaP1X = imgPt(0)
+			CotaP1Y = imgPt(1)
+			ShowMagnifier(X, Y, CotaP1X, CotaP1Y)
+			RenderAll
+
+		Case "place_cota2"
+			Dim imgPt() As Float = ScreenToImg(X, Y)
+			ShowMagnifier(X, Y, imgPt(0), imgPt(1))
+			RenderAll
+
+		Case "drag_endpoint"
+			Dim imgPt() As Float = ScreenToImg(X, Y)
+			CotaEngine.MoveCotaEndpoint(SelectedIndex, DragPartIndex, imgPt(0), imgPt(1))
+			RenderAll
+
+		Case "drag_text"
+			Dim s As Float = BaseScale * ZoomLevel
+			CotaEngine.MoveCotaText(SelectedIndex, dx / s, dy / s)
+			RenderAll
+
+		Case "drag_offset"
+			Dim s As Float = BaseScale * ZoomLevel
+			CotaEngine.MoveCotaOffset(SelectedIndex, dx / s, dy / s)
+			RenderAll
+
+		Case "drag_box"
+			Dim s As Float = BaseScale * ZoomLevel
+			CotaEngine.MoveTextBox(SelectedIndex, dx / s, dy / s)
+			RenderAll
+
+		Case "drag_boxhandle"
+			Dim imgPt() As Float = ScreenToImg(X, Y)
+			CotaEngine.MoveBoxCorner(SelectedIndex, DragPartIndex, imgPt(0), imgPt(1))
+			RenderAll
+	End Select
+End Sub
+
+Sub HandleTouchUp(X As Float, Y As Float)
+	HideMagnifier
+
+	Select TouchMode
+		Case "place_cota1"
+			Dim imgPt() As Float = ScreenToImg(X, Y)
+			CotaP1X = imgPt(0)
+			CotaP1Y = imgPt(1)
+			RenderAll
+			' Esperar segundo punto
+
+		Case "place_cota2"
+			Dim imgPt() As Float = ScreenToImg(X, Y)
+			Dim p2x As Float = imgPt(0)
+			Dim p2y As Float = imgPt(1)
+
+			' Guardar ambos puntos antes de resetear P1
+			mTextInputP1X = CotaP1X
+			mTextInputP1Y = CotaP1Y
+			mTextInputP2X = p2x
+			mTextInputP2Y = p2y
+			CotaP1X = -1
+			ShowTextInput("Medida:", "", "new_cota")
+			RenderAll
+	End Select
+
+	TouchMode = "none"
+End Sub
+
+' ── Long press en editor (para menu contextual) ──
+Sub pnlCanvas_LongClick
+	If ActiveTool <> "move" Then Return
+	If mTouchMoved Then Return
+	If SelectedType = "" Or SelectedIndex < 0 Then Return
+
+	If SelectedType = "cota" Then
+		Dim result As Int = InputList(Array("Editar texto", "Cambiar color", "Duplicar", "Eliminar"), "Cota", -1)
+		Select result
+			Case 0 ' Editar texto
+				mTextInputElemIdx = SelectedIndex
+				ShowTextInput("Medida:", CotaEngine.GetCotaText(SelectedIndex), "edit_cota")
+			Case 1 ' Color
+				ShowColorPicker("cota", SelectedIndex)
+			Case 2 ' Duplicar
+				SaveUndoState
+				CotaEngine.DuplicateCota(SelectedIndex)
+				RenderAll
+			Case 3 ' Eliminar
+				SaveUndoState
+				CotaEngine.DeleteElement("cota", SelectedIndex)
+				SelectedType = ""
+				SelectedIndex = -1
+				RenderAll
+		End Select
+
+	Else If SelectedType = "box" Then
+		Dim result As Int = InputList(Array("Editar texto", "Color fondo", "Color texto", "Color borde", "Duplicar", "Eliminar"), "Caja de texto", -1)
+		Select result
+			Case 0 ' Editar texto
+				mTextInputElemIdx = SelectedIndex
+				ShowTextInput("Texto:", CotaEngine.GetTextBoxText(SelectedIndex), "edit_box")
+			Case 1 ' Color fondo
+				ShowColorPicker("box_bg", SelectedIndex)
+			Case 2 ' Color texto
+				ShowColorPicker("box_text", SelectedIndex)
+			Case 3 ' Color borde
+				ShowColorPicker("box_border", SelectedIndex)
+			Case 4 ' Duplicar
+				SaveUndoState
+				CotaEngine.DuplicateTextBox(SelectedIndex)
+				RenderAll
+			Case 5 ' Eliminar
+				SaveUndoState
+				CotaEngine.DeleteElement("box", SelectedIndex)
+				SelectedType = ""
+				SelectedIndex = -1
+				RenderAll
+		End Select
+	End If
+End Sub
+
+Sub ShowColorPicker(Target As String, Index As Int)
+	Dim colorNames() As String = Array As String("Amarillo", "Rojo", "Azul", "Verde", "Blanco", "Negro", "Naranja", "Magenta")
+	Dim colorValues() As Int = Array As Int( _
+		Colors.RGB(255, 204, 0), Colors.RGB(255, 50, 50), Colors.RGB(50, 150, 255), Colors.RGB(50, 200, 50), _
+		Colors.White, Colors.Black, Colors.RGB(255, 150, 0), Colors.RGB(255, 0, 255))
+
+	Dim result As Int = InputList(colorNames, "Elige color", -1)
+	If result >= 0 Then
+		SaveUndoState
+		Dim c As Int = colorValues(result)
+		Select Target
+			Case "cota"
+				CotaEngine.SetCotaColor(Index, c)
+			Case "box_bg"
+				CotaEngine.SetTextBoxBgColor(Index, c)
+			Case "box_text"
+				CotaEngine.SetTextBoxTextColor(Index, c)
+			Case "box_border"
+				CotaEngine.SetTextBoxBorderColor(Index, c)
+		End Select
+		RenderAll
+	End If
+End Sub
+
+
+' ════════════════════════════════════════════════════════════════
+' ══ MAGNIFIER ══════════════════════════════════════════════════
+' ════════════════════════════════════════════════════════════════
+
+Sub ShowMagnifier(screenX As Float, screenY As Float, imgX As Float, imgY As Float)
+	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
+
+	MagnifierVisible = True
+	pnlMagnifier.Visible = True
+
+	' Posicionar: arriba-izquierda del dedo, si no cabe, mover
+	Dim magSize As Int = 120dip
+	Dim mx As Int = screenX - magSize - 30dip
+	Dim my As Int = screenY - magSize - 30dip
+	If mx < 0 Then mx = screenX + 30dip
+	If my < 0 Then my = screenY + 30dip
+	' Adjust for pnlCanvas offset
+	my = my + 48dip ' top bar height
+	pnlMagnifier.Left = mx
+	pnlMagnifier.Top = my
+
+	' Crop region (30px radius around point in image space)
+	Dim radius As Int = 30
+	Dim cx As Int = Max(radius, Min(imgX, OriginalBitmap.Width - radius))
+	Dim cy As Int = Max(radius, Min(imgY, OriginalBitmap.Height - radius))
+
+	Dim cropSize As Int = radius * 2
+	Dim cropBmp As Bitmap
+	cropBmp.InitializeMutable(cropSize, cropSize)
+	Dim cvs As Canvas
+	cvs.Initialize2(cropBmp)
+	Dim srcR As Rect : srcR.Initialize(cx - radius, cy - radius, cx + radius, cy + radius)
+	Dim dstR As Rect : dstR.Initialize(0, 0, cropSize, cropSize)
+	cvs.DrawBitmap(OriginalBitmap, srcR, dstR)
+
+	' Scale up to magnifier size and draw crosshair
+	Dim magPx As Int = 116dip
+	Dim magBmp As Bitmap
+	magBmp.InitializeMutable(magPx, magPx)
+	Dim cvs2 As Canvas
+	cvs2.Initialize2(magBmp)
+	Dim srcR2 As Rect : srcR2.Initialize(0, 0, cropSize, cropSize)
+	Dim dstR2 As Rect : dstR2.Initialize(0, 0, magPx, magPx)
+	cvs2.DrawBitmap(cropBmp, srcR2, dstR2)
+
+	' Crosshair
+	Dim mid As Int = magPx / 2
+	Dim paint As Object ' Use direct canvas methods
+	cvs2.DrawLine(mid, 0, mid, magPx, Colors.Red, 1dip)
+	cvs2.DrawLine(0, mid, magPx, mid, Colors.Red, 1dip)
+
+	imgMagnifier.Bitmap = magBmp
+End Sub
+
+Sub HideMagnifier
+	MagnifierVisible = False
+	pnlMagnifier.Visible = False
+End Sub
