@@ -123,11 +123,17 @@ Sub ExportPdf(Dir As String, FileName As String, imgBmp As Bitmap, cotas As List
 			nativeCanvas.RunMethod("drawLine", Array(x2, y2, el2x2, el2y2, paint))
 			nativeCanvas.RunMethod("drawLine", Array(ox1, oy1, ox2, oy2, paint))
 
-			DrawPdfArrow(nativeCanvas, paint, ox1, oy1, ux, uy, 12, color, lw)
-			DrawPdfArrow(nativeCanvas, paint, ox2, oy2, -ux, -uy, 12, color, lw)
-
 			Dim tmx As Float = (ox1 + ox2) / 2 + nx * 18 + textOffX
 			Dim tmy As Float = (oy1 + oy2) / 2 + ny * 18 + textOffY
+
+			Dim textAngle As Int = 0
+			Dim angleF As Float
+			If m.ContainsKey("textAngle") Then textAngle = m.Get("textAngle")
+			If textAngle <> 0 Then
+				angleF = textAngle
+				nativeCanvas.RunMethod("save", Null)
+				nativeCanvas.RunMethod("rotate", Array(angleF, tmx, tmy))
+			End If
 
 			paint.RunMethod("setStyle", Array(GetPaintStyle("FILL")))
 			paint.RunMethod("setColor", Array(Colors.ARGB(160, 0, 0, 0)))
@@ -143,6 +149,10 @@ Sub ExportPdf(Dir As String, FileName As String, imgBmp As Bitmap, cotas As List
 			paint.RunMethod("setColor", Array(color))
 			paint.RunMethod("setTextAlign", Array(GetTextAlign("CENTER")))
 			nativeCanvas.RunMethod("drawText", Array(txt, tmx, tmy, paint))
+
+			If textAngle <> 0 Then
+				nativeCanvas.RunMethod("restore", Null)
+			End If
 		Next
 
 		' ── Finalizar pagina ──
@@ -160,24 +170,6 @@ Sub ExportPdf(Dir As String, FileName As String, imgBmp As Bitmap, cotas As List
 	Catch
 		Log("PdfExporter error: " & LastException)
 	End Try
-End Sub
-
-Private Sub DrawPdfArrow(nativeCanvas As JavaObject, paint As JavaObject, _
-	ax As Float, ay As Float, ux As Float, uy As Float, _
-	arrowLen As Float, color As Int, lw As Float)
-	Dim angle As Float = 0.436 ' ~25 grados en radianes
-	Dim cos1 As Float = Cos(angle) : Dim sin1 As Float = Sin(angle)
-	Dim cos2 As Float = Cos(-angle) : Dim sin2 As Float = Sin(-angle)
-	Dim t1x As Float = ax - arrowLen * (ux * cos1 - uy * sin1)
-	Dim t1y As Float = ay - arrowLen * (ux * sin1 + uy * cos1)
-	Dim t2x As Float = ax - arrowLen * (ux * cos2 - uy * sin2)
-	Dim t2y As Float = ay - arrowLen * (ux * sin2 + uy * cos2)
-
-	paint.RunMethod("setStyle", Array(GetPaintStyle("STROKE")))
-	paint.RunMethod("setColor", Array(color))
-	paint.RunMethod("setStrokeWidth", Array(lw))
-	nativeCanvas.RunMethod("drawLine", Array(ax, ay, t1x, t1y, paint))
-	nativeCanvas.RunMethod("drawLine", Array(ax, ay, t2x, t2y, paint))
 End Sub
 
 Private Sub GetPaintStyle(name As String) As Object

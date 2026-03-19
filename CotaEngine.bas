@@ -12,8 +12,7 @@ Version=13.3
 Sub Process_Globals
 	Private Cotas As List
 	Private TextBoxes As List
-	Private ARROW_LEN As Float = 12
-	Private ARROW_ANGLE As Float = 25
+	Private ScreenDensity As Float
 End Sub
 
 ' ─── Init / Serialización ─────────────────────────────────────
@@ -21,6 +20,21 @@ End Sub
 Sub Initialize
 	Cotas.Initialize
 	TextBoxes.Initialize
+End Sub
+
+Private Sub EnsureDensity
+	Dim ctx As JavaObject
+	Dim res As JavaObject
+	Dim dm As JavaObject
+	If ScreenDensity > 0.1 Then Return
+	Try
+		ctx.InitializeContext
+		res = ctx.RunMethod("getResources", Null)
+		dm = res.RunMethod("getDisplayMetrics", Null)
+		ScreenDensity = dm.GetField("density")
+	Catch
+	End Try
+	If ScreenDensity < 0.1 Then ScreenDensity = 1.0
 End Sub
 
 Sub LoadFromJson(jsonStr As String)
@@ -34,7 +48,9 @@ Sub LoadFromJson(jsonStr As String)
 		Dim cotaArr As List = root.Get("cotas")
 		If cotaArr <> Null Then
 			For i = 0 To cotaArr.Size - 1
-				Cotas.Add(cotaArr.Get(i))
+				Dim cm As Map = cotaArr.Get(i)
+				If cm.ContainsKey("textAngle") = False Then cm.Put("textAngle", 0)
+				Cotas.Add(cm)
 			Next
 		End If
 		Dim boxArr As List = root.Get("textBoxes")
@@ -82,7 +98,7 @@ End Sub
 
 Sub AddCota(x1 As Float, y1 As Float, x2 As Float, y2 As Float, _
 	text As String, textOffX As Float, textOffY As Float, _
-	cotaOffset As Float, color As Int, lineWidth As Float, fontSize As Int)
+	cotaOffset As Float, color As Int, lineWidth As Float, fontSize As Int, textAngle As Int)
 	Dim m As Map
 	m.Initialize
 	m.Put("x1", x1) : m.Put("y1", y1)
@@ -93,6 +109,7 @@ Sub AddCota(x1 As Float, y1 As Float, x2 As Float, y2 As Float, _
 	m.Put("color", color)
 	m.Put("lineWidth", lineWidth)
 	m.Put("fontSize", fontSize)
+	m.Put("textAngle", textAngle)
 	Cotas.Add(m)
 End Sub
 
@@ -146,6 +163,24 @@ End Sub
 
 Sub SetTextBoxBorderColor(index As Int, color As Int)
 	TextBoxes.Get(index).As(Map).Put("borderColor", color)
+End Sub
+
+Sub SetCotaTextAngle(index As Int, angle As Int)
+	Cotas.Get(index).As(Map).Put("textAngle", angle)
+End Sub
+
+Sub GetCotaTextAngle(index As Int) As Int
+	Dim m As Map = Cotas.Get(index)
+	If m.ContainsKey("textAngle") Then Return m.Get("textAngle")
+	Return 0
+End Sub
+
+Sub SetCotaFontSize(index As Int, fontSize As Int)
+	Cotas.Get(index).As(Map).Put("fontSize", fontSize)
+End Sub
+
+Sub GetCotaFontSize(index As Int) As Int
+	Return Cotas.Get(index).As(Map).Get("fontSize")
 End Sub
 
 ' ─── Mover / Editar ───────────────────────────────────────────
@@ -233,6 +268,92 @@ Sub DeleteElement(elemType As String, index As Int)
 	End If
 End Sub
 
+' ─── Rotación de imagen ───────────────────────────────────────
+
+Sub RotateAll90CW(oldW As Int, oldH As Int)
+	Dim i As Int
+	Dim m As Map
+	Dim x1 As Float
+	Dim y1 As Float
+	Dim x2 As Float
+	Dim y2 As Float
+	Dim tox As Float
+	Dim toy As Float
+	Dim angle As Int
+	Dim cx As Float
+	Dim cy As Float
+	Dim j As Int
+	Dim kx As String
+	Dim ky As String
+	For i = 0 To Cotas.Size - 1
+		m = Cotas.Get(i)
+		x1 = m.Get("x1") : y1 = m.Get("y1")
+		x2 = m.Get("x2") : y2 = m.Get("y2")
+		m.Put("x1", oldH - y1) : m.Put("y1", x1)
+		m.Put("x2", oldH - y2) : m.Put("y2", x2)
+		tox = m.Get("textOffX") : toy = m.Get("textOffY")
+		m.Put("textOffX", -toy) : m.Put("textOffY", tox)
+		If m.ContainsKey("textAngle") Then
+			angle = m.Get("textAngle")
+			angle = angle + 90
+			If angle >= 360 Then angle = angle - 360
+			m.Put("textAngle", angle)
+		End If
+	Next
+	For i = 0 To TextBoxes.Size - 1
+		m = TextBoxes.Get(i)
+		For j = 0 To 3
+			kx = "c" & j & "x"
+			ky = "c" & j & "y"
+			cx = m.Get(kx) : cy = m.Get(ky)
+			m.Put(kx, oldH - cy)
+			m.Put(ky, cx)
+		Next
+	Next
+End Sub
+
+Sub RotateAll90CCW(oldW As Int, oldH As Int)
+	Dim i As Int
+	Dim m As Map
+	Dim x1 As Float
+	Dim y1 As Float
+	Dim x2 As Float
+	Dim y2 As Float
+	Dim tox As Float
+	Dim toy As Float
+	Dim angle As Int
+	Dim cx As Float
+	Dim cy As Float
+	Dim j As Int
+	Dim kx As String
+	Dim ky As String
+	For i = 0 To Cotas.Size - 1
+		m = Cotas.Get(i)
+		x1 = m.Get("x1") : y1 = m.Get("y1")
+		x2 = m.Get("x2") : y2 = m.Get("y2")
+		m.Put("x1", y1) : m.Put("y1", oldW - x1)
+		m.Put("x2", y2) : m.Put("y2", oldW - x2)
+		tox = m.Get("textOffX") : toy = m.Get("textOffY")
+		m.Put("textOffX", toy) : m.Put("textOffY", -tox)
+		If m.ContainsKey("textAngle") Then
+			angle = m.Get("textAngle")
+			angle = angle - 90
+			If angle < 0 Then angle = angle + 360
+			m.Put("textAngle", angle)
+		End If
+	Next
+	For i = 0 To TextBoxes.Size - 1
+		m = TextBoxes.Get(i)
+		For j = 0 To 3
+			kx = "c" & j & "x"
+			ky = "c" & j & "y"
+			cx = m.Get(kx) : cy = m.Get(ky)
+			m.Put(kx, cy)
+			m.Put(ky, oldW - cx)
+		Next
+	Next
+End Sub
+
 ' ─── Hit-test ─────────────────────────────────────────────────
 
 Sub HitTest(ix As Float, iy As Float, tolerancePx As Float) As Map
@@ -274,12 +395,22 @@ Sub HitTest(ix As Float, iy As Float, tolerancePx As Float) As Map
 		Dim ox1 As Float = x1 + nx * off : Dim oy1 As Float = y1 + ny * off
 		Dim ox2 As Float = x2 + nx * off : Dim oy2 As Float = y2 + ny * off
 
-		If Dist(ix, iy, x1, y1) < tolerancePx Then
+		If Dist(ix, iy, x1, y1) < tolerancePx * 2.0 Then
 			result.Put("type", "cota") : result.Put("index", i)
 			result.Put("part", 0) : result.Put("dragMode", "endpoint")
 			Return result
 		End If
-		If Dist(ix, iy, x2, y2) < tolerancePx Then
+		If Dist(ix, iy, x2, y2) < tolerancePx * 2.0 Then
+			result.Put("type", "cota") : result.Put("index", i)
+			result.Put("part", 1) : result.Put("dragMode", "endpoint")
+			Return result
+		End If
+		If Dist(ix, iy, ox1, oy1) < tolerancePx * 2.0 Then
+			result.Put("type", "cota") : result.Put("index", i)
+			result.Put("part", 0) : result.Put("dragMode", "endpoint")
+			Return result
+		End If
+		If Dist(ix, iy, ox2, oy2) < tolerancePx * 2.0 Then
 			result.Put("type", "cota") : result.Put("index", i)
 			result.Put("part", 1) : result.Put("dragMode", "endpoint")
 			Return result
@@ -391,7 +522,9 @@ Sub RenderOnB4XCanvas(bc As B4XCanvas, scale As Float, ox As Float, oy As Float,
 		Dim lw As Float = Max(1, m.Get("lineWidth") * scale)
 		Dim fs As Int = m.Get("fontSize")
 		Dim txt As String = m.Get("text")
-		DrawCota(bc, x1, y1, x2, y2, off, textOffX, textOffY, txt, color, lw, fs * scale)
+		Dim textAngle As Int = 0
+		If m.ContainsKey("textAngle") Then textAngle = m.Get("textAngle")
+		DrawCota(bc, x1, y1, x2, y2, off, textOffX, textOffY, txt, color, lw, fs * scale, textAngle)
 		If selectedType = "cota" And selectedIdx = i Then
 			bc.DrawCircle(x1, y1, 8 * scale, Colors.White, False, 2)
 			bc.DrawCircle(x2, y2, 8 * scale, Colors.White, False, 2)
@@ -401,39 +534,73 @@ End Sub
 
 Private Sub DrawCota(bc As B4XCanvas, x1 As Float, y1 As Float, x2 As Float, y2 As Float, _
 	off As Float, textOffX As Float, textOffY As Float, _
-	txt As String, color As Int, lw As Float, fs As Float)
+	txt As String, color As Int, lw As Float, fs As Float, textAngle As Int)
 	Dim lineLen As Float = Sqrt(Power(x2 - x1, 2) + Power(y2 - y1, 2))
+	Dim ux As Float
+	Dim uy As Float
+	Dim nx As Float
+	Dim ny As Float
+	Dim ox1 As Float
+	Dim oy1 As Float
+	Dim ox2 As Float
+	Dim oy2 As Float
+	Dim extExtra As Float
+	Dim tmx As Float
+	Dim tmy As Float
+	Dim nativeCvs As JavaObject
+	Dim paint As JavaObject
+	Dim angleF As Float
+	Dim bgL As Float
+	Dim bgT As Float
+	Dim bgR As Float
+	Dim bgB As Float
+	Dim font As B4XFont
+	Dim joBC As JavaObject
+	Dim joCvsW As JavaObject
+	Dim textSizeF As Float
 	If lineLen < 2 Then Return
-	Dim ux As Float = (x2 - x1) / lineLen : Dim uy As Float = (y2 - y1) / lineLen
-	Dim nx As Float = -uy : Dim ny As Float = ux
-	Dim ox1 As Float = x1 + nx * off : Dim oy1 As Float = y1 + ny * off
-	Dim ox2 As Float = x2 + nx * off : Dim oy2 As Float = y2 + ny * off
-	Dim extExtra As Float = 6
+	ux = (x2 - x1) / lineLen : uy = (y2 - y1) / lineLen
+	nx = -uy : ny = ux
+	ox1 = x1 + nx * off : oy1 = y1 + ny * off
+	ox2 = x2 + nx * off : oy2 = y2 + ny * off
+	extExtra = 6
 	bc.DrawLine(x1, y1, ox1 + nx * extExtra, oy1 + ny * extExtra, color, lw)
 	bc.DrawLine(x2, y2, ox2 + nx * extExtra, oy2 + ny * extExtra, color, lw)
 	bc.DrawLine(ox1, oy1, ox2, oy2, color, lw)
-	Dim arrowLen As Float = ARROW_LEN * (lw / 1.5)
-	DrawArrow(bc, ox1, oy1, ux, uy, arrowLen, color, lw)
-	DrawArrow(bc, ox2, oy2, -ux, -uy, arrowLen, color, lw)
-	Dim tmx As Float = (ox1 + ox2) / 2 + nx * 18 + textOffX
-	Dim tmy As Float = (oy1 + oy2) / 2 + ny * 18 + textOffY
-	Dim font As B4XFont = Main.xui.CreateDefaultFont(Max(8, fs))
-	bc.DrawRect(CreateRect(tmx - 30, tmy - fs * 0.7, tmx + 30, tmy + fs * 0.4), _
-		Colors.ARGB(160, 0, 0, 0), True, 0)
-	bc.DrawText(txt, tmx, tmy, font, color, "CENTER")
-End Sub
-
-Private Sub DrawArrow(bc As B4XCanvas, ax As Float, ay As Float, _
-	ux As Float, uy As Float, arrowLen As Float, color As Int, lw As Float)
-	Dim angle As Float = ARROW_ANGLE * 3.14159265 / 180
-	Dim cos1 As Float = Cos(angle) : Dim sin1 As Float = Sin(angle)
-	Dim cos2 As Float = Cos(-angle) : Dim sin2 As Float = Sin(-angle)
-	Dim tip1x As Float = ax - arrowLen * (ux * cos1 - uy * sin1)
-	Dim tip1y As Float = ay - arrowLen * (ux * sin1 + uy * cos1)
-	Dim tip2x As Float = ax - arrowLen * (ux * cos2 - uy * sin2)
-	Dim tip2y As Float = ay - arrowLen * (ux * sin2 + uy * cos2)
-	bc.DrawLine(ax, ay, tip1x, tip1y, color, lw)
-	bc.DrawLine(ax, ay, tip2x, tip2y, color, lw)
+	tmx = (ox1 + ox2) / 2 + nx * 18 + textOffX
+	tmy = (oy1 + oy2) / 2 + ny * 18 + textOffY
+	If textAngle <> 0 Then
+		' Texto rotado via canvas nativo (B4XCanvas.cvs → CanvasWrapper.canvas)
+		EnsureDensity
+		joBC = bc
+		joCvsW = joBC.GetFieldJO("cvs")
+		nativeCvs = joCvsW.GetFieldJO("canvas")
+		paint.InitializeNewInstance("android.graphics.Paint", Null)
+		paint.RunMethod("setAntiAlias", Array(True))
+		angleF = textAngle
+		nativeCvs.RunMethod("save", Null)
+		nativeCvs.RunMethod("rotate", Array(angleF, tmx, tmy))
+		' Fondo
+		paint.RunMethod("setStyle", Array(GetPaintStyleFill))
+		paint.RunMethod("setColor", Array(Colors.ARGB(160, 0, 0, 0)))
+		textSizeF = Max(8, fs) * ScreenDensity
+		bgL = tmx - 30
+		bgT = tmy - textSizeF * 0.7
+		bgR = tmx + 30
+		bgB = tmy + textSizeF * 0.4
+		nativeCvs.RunMethod("drawRect", Array(bgL, bgT, bgR, bgB, paint))
+		' Texto
+		paint.RunMethod("setColor", Array(color))
+		paint.RunMethod("setTextSize", Array(textSizeF))
+		paint.RunMethod("setTextAlign", Array(GetTextAlignCenter))
+		nativeCvs.RunMethod("drawText", Array(txt, tmx, tmy, paint))
+		nativeCvs.RunMethod("restore", Null)
+	Else
+		font = Main.xui.CreateDefaultFont(Max(8, fs))
+		bc.DrawRect(CreateRect(tmx - 30, tmy - fs * 0.7, tmx + 30, tmy + fs * 0.4), _
+			Colors.ARGB(160, 0, 0, 0), True, 0)
+		bc.DrawText(txt, tmx, tmy, font, color, "CENTER")
+	End If
 End Sub
 
 Private Sub DrawBoxHandles(bc As B4XCanvas, _
@@ -493,8 +660,43 @@ Sub RenderOnCanvas(cvs As Canvas, scale As Float, ox As Float, oy As Float, imgW
 		cvs.DrawLine(ox1, oy1, ox2, oy2, color, lw)
 		Dim tmx As Float = (ox1 + ox2) / 2 + nx * 18 + textOffX
 		Dim tmy As Float = (oy1 + oy2) / 2 + ny * 18 + textOffY
-		cvs.DrawText(txt, tmx, tmy, Typeface.DEFAULT, fs, color, "CENTER")
+		Dim textAngle As Int = 0
+		Dim nativeCvs As JavaObject
+		Dim paint As JavaObject
+		Dim angleF As Float
+		Dim joCvsWrapper As JavaObject
+		Dim textSizeF As Float
+		If m.ContainsKey("textAngle") Then textAngle = m.Get("textAngle")
+		If textAngle <> 0 Then
+			joCvsWrapper = cvs
+			nativeCvs = joCvsWrapper.GetFieldJO("canvas")
+			paint.InitializeNewInstance("android.graphics.Paint", Null)
+			paint.RunMethod("setAntiAlias", Array(True))
+			paint.RunMethod("setColor", Array(color))
+			textSizeF = fs
+			paint.RunMethod("setTextSize", Array(textSizeF))
+			paint.RunMethod("setTextAlign", Array(GetTextAlignCenter))
+			angleF = textAngle
+			nativeCvs.RunMethod("save", Null)
+			nativeCvs.RunMethod("rotate", Array(angleF, tmx, tmy))
+			nativeCvs.RunMethod("drawText", Array(txt, tmx, tmy, paint))
+			nativeCvs.RunMethod("restore", Null)
+		Else
+			cvs.DrawText(txt, tmx, tmy, Typeface.DEFAULT, fs, color, "CENTER")
+		End If
 	Next
+End Sub
+
+Private Sub GetPaintStyleFill As Object
+	Dim jo As JavaObject
+	jo.InitializeStatic("android.graphics.Paint.Style")
+	Return jo.GetField("FILL")
+End Sub
+
+Private Sub GetTextAlignCenter As Object
+	Dim jo As JavaObject
+	jo.InitializeStatic("android.graphics.Paint.Align")
+	Return jo.GetField("CENTER")
 End Sub
 
 Private Sub CreateRect(l As Float, t As Float, r As Float, b As Float) As B4XRect

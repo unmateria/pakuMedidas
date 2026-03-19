@@ -72,6 +72,7 @@ Sub Globals
 	Private LastTouchY As Float
 	Private PinchStartDist As Float
 	Private PinchStartZoom As Float
+	Private PreviousTouchMode As String = "none"
 
 	' Herramienta activa
 	Private ActiveTool As String = "move" ' move, cota, box, delete
@@ -85,6 +86,8 @@ Sub Globals
 	Private btnPdf As Button
 	Private btnShare As Button
 	Private btnBack As Button
+	Private btnRotCW As Button
+	Private btnRotCCW As Button
 	Private lblEditorTitle As Label
 
 	' Cota en progreso
@@ -143,6 +146,10 @@ End Sub
 
 Sub Activity_KeyPress(KeyCode As Int) As Boolean
 	If KeyCode = KeyCodes.KEYCODE_BACK Then
+		If MultiSelectMode Then
+			ExitMultiSelectMode
+			Return True
+		End If
 		If CurrentPage = "editor" Then
 			SaveCurrentProject
 			ShowListPage
@@ -243,6 +250,7 @@ End Sub
 Sub btnTextInputOK_Click
 	pnlTextInput.Visible = False
 	Dim txt As String = edTextInput.Text
+	Dim newFontSize As Int
 	If txt = "" Then Return
 	Select mTextInputAction
 		Case "rename_project"
@@ -251,7 +259,7 @@ Sub btnTextInputOK_Click
 			RefreshProjectList
 		Case "new_cota"
 			SaveUndoState
-			CotaEngine.AddCota(mTextInputP1X, mTextInputP1Y, mTextInputP2X, mTextInputP2Y, txt, 0, -30, 25, Colors.RGB(255, 204, 0), 3, 14)
+			CotaEngine.AddCota(mTextInputP1X, mTextInputP1Y, mTextInputP2X, mTextInputP2Y, txt, 0, -30, 25, Colors.RGB(255, 204, 0), 3, 14, 0)
 			TouchMode = "none"
 			RenderAll
 		Case "edit_cota"
@@ -265,6 +273,13 @@ Sub btnTextInputOK_Click
 			SaveUndoState
 			CotaEngine.SetTextBoxText(mTextInputElemIdx, txt)
 			RenderAll
+		Case "font_size_cota"
+			If IsNumber(txt) Then newFontSize = txt
+			If newFontSize >= 4 And newFontSize <= 200 Then
+				SaveUndoState
+				CotaEngine.SetCotaFontSize(mTextInputElemIdx, newFontSize)
+				RenderAll
+			End If
 	End Select
 	mTextInputAction = ""
 End Sub
@@ -298,8 +313,19 @@ Sub RefreshProjectList
 
 		Dim pnl As Panel
 		pnl.Initialize("pnlItem")
+		Dim isSelected As Boolean = False
 		pnl.Color = Colors.White
 		pnl.Tag = id
+		If MultiSelectMode Then
+			isSelected = False
+			For si = 0 To SelectedIds.Size - 1
+				If SelectedIds.Get(si) = id Then
+					isSelected = True
+					Exit
+				End If
+			Next
+			If isSelected Then pnl.Color = Colors.RGB(200, 230, 255)
+		End If
 		svListInner.AddView(pnl, 0, yPos, 100%x, itemH)
 
 		' Divisor
@@ -344,6 +370,10 @@ Sub pnlItem_Click
 	Dim v As Panel = Sender
 	Dim projectId As Int
 	projectId = v.Tag
+	If MultiSelectMode Then
+		ToggleSelection(projectId)
+		Return
+	End If
 	OpenEditor(projectId)
 End Sub
 
@@ -351,7 +381,7 @@ Sub pnlItem_LongClick
 	Dim v As Panel = Sender
 	Dim projectId As Int
 	projectId = v.Tag
-	Dim result As Int = InputList(Array("Abrir", "Renombrar", "Compartir PDF", "Eliminar"), "Proyecto", -1)
+	Dim result As Int = InputList(Array("Abrir", "Renombrar", "Compartir PDF", "Seleccionar para compartir", "Eliminar"), "Proyecto", -1)
 	Select result
 		Case 0
 			OpenEditor(projectId)
@@ -361,6 +391,8 @@ Sub pnlItem_LongClick
 		Case 2
 			ShareProjectPdf(projectId)
 		Case 3
+			EnterMultiSelectMode(projectId)
+		Case 4
 			Dim confirm As Int = Msgbox2("Eliminar este proyecto?", "Confirmar", "Eliminar", "", "Cancelar", Null)
 			If confirm = DialogResponse.POSITIVE Then
 				DeleteProject(projectId)
@@ -370,6 +402,10 @@ Sub pnlItem_LongClick
 End Sub
 
 Sub btnNewProject_Click
+	If MultiSelectMode Then
+		ShareMultipleProjects
+		Return
+	End If
 	CC.Show("image/*", "Selecciona una foto")
 End Sub
 
@@ -495,6 +531,152 @@ Sub DeleteProject(id As Int)
 	Starter.DB.ExecNonQuery2("DELETE FROM projects WHERE id = ?", Array As String(id))
 End Sub
 
+' ── Multi-seleccion para compartir ──
+
+Sub EnterMultiSelectMode(firstId As Int)
+	MultiSelectMode = True
+	SelectedIds.Initialize
+	SelectedIds.Add(firstId)
+	UpdateMultiSelectUI
+	RefreshProjectList
+End Sub
+
+Sub ExitMultiSelectMode
+	MultiSelectMode = False
+	SelectedIds.Initialize
+	UpdateMultiSelectUI
+	RefreshProjectList
+End Sub
+
+Sub UpdateMultiSelectUI
+	If MultiSelectMode Then
+		lblListTitle.Text = "Seleccionar (" & SelectedIds.Size & ")"
+		btnNewProject.Text = "Compartir (" & SelectedIds.Size & ")"
+		btnNewProject.Color = Colors.RGB(33, 150, 243)
+	Else
+		lblListTitle.Text = "PakuMedidas"
+		btnNewProject.Text = "+ Nueva"
+		btnNewProject.Color = Colors.RGB(76, 175, 80)
+	End If
+End Sub
+
+Sub ToggleSelection(id As Int)
+	Dim found As Boolean = False
+	For idx = 0 To SelectedIds.Size - 1
+		If SelectedIds.Get(idx) = id Then
+			SelectedIds.RemoveAt(idx)
+			found = True
+			Exit
+		End If
+	Next
+	If found = False Then SelectedIds.Add(id)
+	If SelectedIds.Size = 0 Then
+		ExitMultiSelectMode
+	Else
+		UpdateMultiSelectUI
+		RefreshProjectList
+	End If
+End Sub
+
+Sub ShareMultipleProjects
+	Dim sharedDir As String
+	Dim uriList As JavaObject
+	Dim projId As Int
+	Dim rs As ResultSet
+	Dim imgPath As String
+	Dim jsonStr As String
+	Dim bmp As Bitmap
+	Dim fileName As String
+	Dim filePath As String
+	Dim shareUri As Object
+	Dim listSize As Object
+	Dim listSizeInt As Int
+	Dim i As Intent
+	Dim joIntent As JavaObject
+	Dim jIntent As JavaObject
+	Dim chooser As Object
+	If SelectedIds.Size = 0 Then Return
+
+	sharedDir = File.Combine(File.DirInternal, "shared")
+	File.MakeDir(File.DirInternal, "shared")
+
+	uriList.InitializeNewInstance("java.util.ArrayList", Null)
+
+	For idx = 0 To SelectedIds.Size - 1
+		projId = SelectedIds.Get(idx)
+		rs = Starter.DB.ExecQuery2("SELECT image_path, annotations_json FROM projects WHERE id = ?", Array As String(projId))
+		If rs.NextRow Then
+			imgPath = rs.GetString("image_path")
+			jsonStr = rs.GetString("annotations_json")
+			rs.Close
+
+			If File.Exists(File.DirInternal, imgPath) Then
+				bmp = LoadBitmap(File.DirInternal, imgPath)
+				CotaEngine.LoadFromJson(jsonStr)
+				fileName = "PakuMedidas_" & projId & "_" & DateTime.Now & ".pdf"
+				PdfExporter.ExportPdf(sharedDir, fileName, bmp, CotaEngine.GetCotas, CotaEngine.GetTextBoxes)
+
+				filePath = File.Combine(sharedDir, fileName)
+				shareUri = GetShareUri(filePath, fileName, "application/pdf")
+				If shareUri <> Null Then
+					uriList.RunMethod("add", Array(shareUri))
+				End If
+			End If
+		Else
+			rs.Close
+		End If
+	Next
+
+	listSize = uriList.RunMethod("size", Null)
+	listSizeInt = listSize
+	If listSizeInt > 0 Then
+		Try
+			i.Initialize("android.intent.action.SEND_MULTIPLE", "")
+			i.SetType("application/pdf")
+			joIntent = i
+			joIntent.RunMethod("putParcelableArrayListExtra", Array("android.intent.extra.STREAM", uriList))
+			i.Flags = 1 ' FLAG_GRANT_READ_URI_PERMISSION
+			jIntent.InitializeStatic("android.content.Intent")
+			chooser = jIntent.RunMethod("createChooser", Array(i, "Enviar PDFs"))
+			StartActivity(chooser)
+		Catch
+			Log("Error sharing multiple: " & LastException)
+			ToastMessageShow("Error al compartir", True)
+		End Try
+	End If
+
+	ExitMultiSelectMode
+End Sub
+
+Sub GetShareUri(FilePath As String, FileName As String, MimeType As String) As Object
+	Dim build As JavaObject
+	Dim sdk As Int
+	Dim smBuilder As JavaObject
+	Dim policy As Object
+	Dim sm As JavaObject
+	Dim joUri As JavaObject
+	Dim f As JavaObject
+	Try
+		build.InitializeStatic("android.os.Build$VERSION")
+		sdk = build.GetField("SDK_INT")
+
+		If sdk >= 29 Then
+			Return CopyToMediaStore(FilePath, FileName, MimeType)
+		Else
+			smBuilder.InitializeNewInstance("android.os.StrictMode$VmPolicy$Builder", Null)
+			policy = smBuilder.RunMethod("build", Null)
+			sm.InitializeStatic("android.os.StrictMode")
+			sm.RunMethod("setVmPolicy", Array(policy))
+			joUri.InitializeStatic("android.net.Uri")
+			f.InitializeNewInstance("java.io.File", Array(FilePath))
+			Return joUri.RunMethod("fromFile", Array(f))
+		End If
+	Catch
+		Log("GetShareUri error: " & LastException)
+		Return Null
+	End Try
+End Sub
+
 ' ════════════════════════════════════════════════════════════════
 ' ══ EDITOR PAGE ════════════════════════════════════════════════
 ' ════════════════════════════════════════════════════════════════
@@ -549,6 +731,22 @@ Sub BuildEditorPage
 	btnSave.TextColor = Colors.White
 	rightX = rightX - 58dip
 	pnlTop.AddView(btnSave, rightX, 0, 58dip, topH)
+
+	btnRotCW.Initialize("btnRotCW")
+	btnRotCW.Text = Chr(0x21BB)
+	btnRotCW.TextSize = 18
+	btnRotCW.Color = Colors.Transparent
+	btnRotCW.TextColor = Colors.White
+	rightX = rightX - 40dip
+	pnlTop.AddView(btnRotCW, rightX, 0, 40dip, topH)
+
+	btnRotCCW.Initialize("btnRotCCW")
+	btnRotCCW.Text = Chr(0x21BA)
+	btnRotCCW.TextSize = 18
+	btnRotCCW.Color = Colors.Transparent
+	btnRotCCW.TextColor = Colors.White
+	rightX = rightX - 40dip
+	pnlTop.AddView(btnRotCCW, rightX, 0, 40dip, topH)
 
 	' ── Bottom toolbar ──
 	Dim botH As Int = 52dip
@@ -939,6 +1137,80 @@ Sub SaveCurrentProject
 		Array As String(json, DateTime.Now, EditProjectId))
 End Sub
 
+Sub btnRotCW_Click
+	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
+	SaveUndoState
+	RotateImage(90)
+End Sub
+
+Sub btnRotCCW_Click
+	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
+	SaveUndoState
+	RotateImage(-90)
+End Sub
+
+Sub RotateImage(degrees As Int)
+	Dim oldW As Int = OriginalBitmap.Width
+	Dim oldH As Int = OriginalBitmap.Height
+	Dim degreesF As Float = degrees
+	Dim zeroI As Int = 0
+	Dim matrix As JavaObject
+	Dim joBmp As JavaObject
+	Dim rotated As Bitmap
+
+	matrix.InitializeNewInstance("android.graphics.Matrix", Null)
+	matrix.RunMethod("postRotate", Array(degreesF))
+
+	joBmp.InitializeStatic("android.graphics.Bitmap")
+	rotated = joBmp.RunMethod("createBitmap", Array(OriginalBitmap, zeroI, zeroI, oldW, oldH, matrix, True))
+	OriginalBitmap = rotated
+
+	If degrees = 90 Or degrees = -270 Then
+		CotaEngine.RotateAll90CW(oldW, oldH)
+	Else If degrees = -90 Or degrees = 270 Then
+		CotaEngine.RotateAll90CCW(oldW, oldH)
+	End If
+
+	BaseScale = Min(pnlCanvas.Width / OriginalBitmap.Width, pnlCanvas.Height / OriginalBitmap.Height)
+	SelectedType = ""
+	SelectedIndex = -1
+	PanX = 0
+	PanY = 0
+
+	SaveRotatedImage
+	RenderAll
+End Sub
+
+Sub SaveRotatedImage
+	Dim rs As ResultSet
+	Dim imgPath As String
+	Dim out As OutputStream
+	Dim rs2 As ResultSet
+	Dim thumbPath As String
+	Dim thumbBmp As Bitmap
+	Dim out2 As OutputStream
+	If EditProjectId < 0 Then Return
+	rs = Starter.DB.ExecQuery2("SELECT image_path FROM projects WHERE id = ?", Array As String(EditProjectId))
+	If rs.NextRow Then
+		imgPath = rs.GetString("image_path")
+	End If
+	rs.Close
+	If imgPath <> "" Then
+		out = File.OpenOutput(File.DirInternal, imgPath, False)
+		OriginalBitmap.WriteToStream(out, 95, "JPEG")
+		out.Close
+		rs2 = Starter.DB.ExecQuery2("SELECT thumb_path FROM projects WHERE id = ?", Array As String(EditProjectId))
+		If rs2.NextRow Then thumbPath = rs2.GetString("thumb_path")
+		rs2.Close
+		If thumbPath <> "" Then
+			thumbBmp = CreateScaledBitmap(OriginalBitmap, 160, 160)
+			out2 = File.OpenOutput(File.DirInternal, thumbPath, False)
+			thumbBmp.WriteToStream(out2, 80, "JPEG")
+			out2.Close
+		End If
+	End If
+End Sub
+
 ' ════════════════════════════════════════════════════════════════
 ' ══ CANVAS RENDERING ═══════════════════════════════════════════
 ' ════════════════════════════════════════════════════════════════
@@ -995,18 +1267,52 @@ End Sub
 
 Sub Canvas_Touch(View As Object, PointerID As Int, Action As Int, X As Float, Y As Float)
 	Dim pointerCount As Int = GS.GetPointerCount
+	Dim maskedAction As Int = Bit.And(Action, 255) ' ACTION_MASK = 0xFF
 
-	Select Action
+	Select maskedAction
 		Case 0 ' ACTION_DOWN
 			HandleTouchDown(X, Y, pointerCount)
+		Case 5 ' ACTION_POINTER_DOWN (segundo dedo)
+			HandlePointerDown(X, Y, pointerCount)
 		Case 2 ' ACTION_MOVE
 			HandleTouchMove(X, Y, pointerCount)
+		Case 6 ' ACTION_POINTER_UP (segundo dedo levanta)
+			HandlePointerUp(X, Y, pointerCount)
 		Case 1, 3 ' ACTION_UP, ACTION_CANCEL
 			HandleTouchUp(X, Y)
 	End Select
 End Sub
 
+Sub HandlePointerDown(X As Float, Y As Float, PointerCount As Int)
+	Dim p0x As Float
+	Dim p0y As Float
+	Dim p1x As Float
+	Dim p1y As Float
+	If PointerCount >= 2 Then
+		PreviousTouchMode = TouchMode
+		p0x = GS.GetX(0) : p0y = GS.GetY(0)
+		p1x = GS.GetX(1) : p1y = GS.GetY(1)
+		PinchStartDist = Sqrt(Power(p0x - p1x, 2) + Power(p0y - p1y, 2))
+		PinchStartZoom = ZoomLevel
+		TouchMode = "pinch"
+		HideMagnifier
+	End If
+End Sub
+
+Sub HandlePointerUp(X As Float, Y As Float, PointerCount As Int)
+	If TouchMode = "pinch" Then
+		TouchMode = "none"
+		LastTouchX = X
+		LastTouchY = Y
+		RenderAll
+	End If
+End Sub
+
 Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
+	Dim p0x As Float
+	Dim p0y As Float
+	Dim p1x As Float
+	Dim p1y As Float
 	TouchStartX = X
 	TouchStartY = Y
 	LastTouchX = X
@@ -1015,9 +1321,10 @@ Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
 
 	If PointerCount >= 2 Then
 		' Pinch zoom
-		Dim x2 As Float = GS.GetX(1)
-		Dim y2 As Float = GS.GetY(1)
-		PinchStartDist = Sqrt(Power(X - x2, 2) + Power(Y - y2, 2))
+		PreviousTouchMode = TouchMode
+		p0x = GS.GetX(0) : p0y = GS.GetY(0)
+		p1x = GS.GetX(1) : p1y = GS.GetY(1)
+		PinchStartDist = Sqrt(Power(p0x - p1x, 2) + Power(p0y - p1y, 2))
 		PinchStartZoom = ZoomLevel
 		TouchMode = "pinch"
 		HideMagnifier
@@ -1031,7 +1338,7 @@ Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
 	Select ActiveTool
 		Case "move"
 			' Hit test para elementos
-			Dim hit As Map = CotaEngine.HitTest(ix, iy, 20 / (BaseScale * ZoomLevel))
+			Dim hit As Map = CotaEngine.HitTest(ix, iy, 30 / (BaseScale * ZoomLevel))
 			If hit.Get("type") <> "" Then
 				SelectedType = hit.Get("type")
 				SelectedIndex = hit.Get("index")
@@ -1077,7 +1384,7 @@ Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
 			ShowTextInput("Texto:", "Texto", "new_box")
 
 		Case "delete"
-			Dim hit As Map = CotaEngine.HitTest(ix, iy, 20 / (BaseScale * ZoomLevel))
+			Dim hit As Map = CotaEngine.HitTest(ix, iy, 30 / (BaseScale * ZoomLevel))
 			If hit.Get("type") <> "" Then
 				SaveUndoState
 				CotaEngine.DeleteElement(hit.Get("type"), hit.Get("index"))
@@ -1089,15 +1396,37 @@ Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
 End Sub
 
 Sub HandleTouchMove(X As Float, Y As Float, PointerCount As Int)
+	Dim p0x As Float
+	Dim p0y As Float
+	Dim p1x As Float
+	Dim p1y As Float
+	Dim dist As Float
+	' Pinch zoom: si hay 2+ dedos, entrar en pinch siempre
+	If PointerCount >= 2 And TouchMode <> "pinch" Then
+		PreviousTouchMode = TouchMode
+		p0x = GS.GetX(0) : p0y = GS.GetY(0)
+		p1x = GS.GetX(1) : p1y = GS.GetY(1)
+		PinchStartDist = Sqrt(Power(p0x - p1x, 2) + Power(p0y - p1y, 2))
+		PinchStartZoom = ZoomLevel
+		TouchMode = "pinch"
+		HideMagnifier
+	End If
 	If TouchMode = "pinch" And PointerCount >= 2 Then
-		Dim x2 As Float = GS.GetX(1)
-		Dim y2 As Float = GS.GetY(1)
-		Dim dist As Float = Sqrt(Power(X - x2, 2) + Power(Y - y2, 2))
+		p0x = GS.GetX(0) : p0y = GS.GetY(0)
+		p1x = GS.GetX(1) : p1y = GS.GetY(1)
+		dist = Sqrt(Power(p0x - p1x, 2) + Power(p0y - p1y, 2))
 		If PinchStartDist > 10 Then
 			ZoomLevel = PinchStartZoom * (dist / PinchStartDist)
 			ZoomLevel = Max(0.2, Min(ZoomLevel, 10.0))
 			RenderAll
 		End If
+		Return
+	End If
+	' Si estabamos en pinch pero queda 1 dedo, salir de pinch
+	If TouchMode = "pinch" Then
+		TouchMode = "none"
+		LastTouchX = X
+		LastTouchY = Y
 		Return
 	End If
 
@@ -1128,6 +1457,7 @@ Sub HandleTouchMove(X As Float, Y As Float, PointerCount As Int)
 
 		Case "drag_endpoint"
 			Dim imgPt() As Float = ScreenToImg(X, Y)
+			ShowMagnifier(X, Y, imgPt(0), imgPt(1))
 			CotaEngine.MoveCotaEndpoint(SelectedIndex, DragPartIndex, imgPt(0), imgPt(1))
 			RenderAll
 
@@ -1148,6 +1478,7 @@ Sub HandleTouchMove(X As Float, Y As Float, PointerCount As Int)
 
 		Case "drag_boxhandle"
 			Dim imgPt() As Float = ScreenToImg(X, Y)
+			ShowMagnifier(X, Y, imgPt(0), imgPt(1))
 			CotaEngine.MoveBoxCorner(SelectedIndex, DragPartIndex, imgPt(0), imgPt(1))
 			RenderAll
 	End Select
@@ -1155,6 +1486,12 @@ End Sub
 
 Sub HandleTouchUp(X As Float, Y As Float)
 	HideMagnifier
+
+	If TouchMode = "pinch" Then
+		TouchMode = "none"
+		RenderAll
+		Return
+	End If
 
 	Select TouchMode
 		Case "place_cota1"
@@ -1189,18 +1526,35 @@ Sub pnlCanvas_LongClick
 	If SelectedType = "" Or SelectedIndex < 0 Then Return
 
 	If SelectedType = "cota" Then
-		Dim result As Int = InputList(Array("Editar texto", "Cambiar color", "Duplicar", "Eliminar"), "Cota", -1)
+		Dim result As Int = InputList(Array("Editar texto", "Cambiar color", "Rotar texto " & Chr(0x2192), "Rotar texto " & Chr(0x2190), "Tamano texto", "Duplicar", "Eliminar"), "Cota", -1)
+		Dim curAngle As Int
 		Select result
 			Case 0 ' Editar texto
 				mTextInputElemIdx = SelectedIndex
 				ShowTextInput("Medida:", CotaEngine.GetCotaText(SelectedIndex), "edit_cota")
 			Case 1 ' Color
 				ShowColorPicker("cota", SelectedIndex)
-			Case 2 ' Duplicar
+			Case 2 ' Rotar texto derecha (+90)
+				SaveUndoState
+				curAngle = CotaEngine.GetCotaTextAngle(SelectedIndex)
+				curAngle = curAngle + 90
+				If curAngle >= 360 Then curAngle = curAngle - 360
+				CotaEngine.SetCotaTextAngle(SelectedIndex, curAngle)
+				RenderAll
+			Case 3 ' Rotar texto izquierda (-90)
+				SaveUndoState
+				curAngle = CotaEngine.GetCotaTextAngle(SelectedIndex)
+				curAngle = curAngle - 90
+				If curAngle < 0 Then curAngle = curAngle + 360
+				CotaEngine.SetCotaTextAngle(SelectedIndex, curAngle)
+				RenderAll
+			Case 4 ' Tamano texto
+				ShowFontSizePicker(SelectedIndex)
+			Case 5 ' Duplicar
 				SaveUndoState
 				CotaEngine.DuplicateCota(SelectedIndex)
 				RenderAll
-			Case 3 ' Eliminar
+			Case 6 ' Eliminar
 				SaveUndoState
 				CotaEngine.DeleteElement("cota", SelectedIndex)
 				SelectedType = ""
@@ -1256,6 +1610,12 @@ Sub ShowColorPicker(Target As String, Index As Int)
 		End Select
 		RenderAll
 	End If
+End Sub
+
+Sub ShowFontSizePicker(cotaIdx As Int)
+	mTextInputElemIdx = cotaIdx
+	Dim curSize As Int = CotaEngine.GetCotaFontSize(cotaIdx)
+	ShowTextInput("Tamano de texto:", curSize, "font_size_cota")
 End Sub
 
 
