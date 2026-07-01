@@ -34,7 +34,20 @@ Take a photo of any facade or space and add professional annotations directly on
 
 ## Screenshots
 
-> *Coming soon*
+<table>
+<tr>
+<td><img src="screenshots/01-pakumedidas-lupa-precision-cota.jpg" width="220" alt="precision magnifier placing a dimension line"></td>
+<td><img src="screenshots/02-pakumedidas-cota-texto-rotado.jpg" width="220" alt="dimension line with text rotated 90 degrees"></td>
+<td><img src="screenshots/03-pakumedidas-caja-texto-libre.jpg" width="220" alt="free-form text box"></td>
+<td><img src="screenshots/04-pakumedidas-lista-proyectos-compartir.jpg" width="220" alt="project list and share menu"></td>
+</tr>
+<tr>
+<td align="center">Precision magnifier while placing a dimension</td>
+<td align="center">Dimension line with 90° rotated text</td>
+<td align="center">Free-form text box</td>
+<td align="center">Project list and sharing</td>
+</tr>
+</table>
 
 ---
 

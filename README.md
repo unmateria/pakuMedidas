@@ -34,7 +34,20 @@ Toma una foto de cualquier fachada o espacio y añade anotaciones profesionales 
 
 ## Capturas
 
-> *Próximamente*
+<table>
+<tr>
+<td><img src="screenshots/01-pakumedidas-lupa-precision-cota.jpg" width="220" alt="lupa de precisión colocando una cota"></td>
+<td><img src="screenshots/02-pakumedidas-cota-texto-rotado.jpg" width="220" alt="cota con texto rotado 90 grados"></td>
+<td><img src="screenshots/03-pakumedidas-caja-texto-libre.jpg" width="220" alt="caja de texto de forma libre"></td>
+<td><img src="screenshots/04-pakumedidas-lista-proyectos-compartir.jpg" width="220" alt="lista de proyectos y menú compartir"></td>
+</tr>
+<tr>
+<td align="center">Lupa de precisión al colocar una cota</td>
+<td align="center">Cota con texto rotado 90°</td>
+<td align="center">Caja de texto de forma libre</td>
+<td align="center">Lista de proyectos y compartir</td>
+</tr>
+</table>
 
 ---
 
