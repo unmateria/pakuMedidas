@@ -97,6 +97,7 @@ cotas antiguas sin `textAngle` asignando 0 por defecto.
 | Try-catch en todo `LoadBitmap` | Imágenes corruptas, demasiado grandes o formatos no soportados pueden lanzar excepciones; se muestran toast de error y se aborta la operación |
 | Streams con cierre en catch | `CopyToMediaStore` cierra `FileInputStream` y `OutputStream` en el bloque catch para evitar file handle leaks |
 | Camera temp con Rnd | `"camera_temp_" & DateTime.Now & "_" & Rnd(0, 9999) & ".jpg"` evita colisión de nombres |
+| `RecycleBitmap` via `JavaObject` en `ShowMagnifier` | `Bitmap.Recycle` no está expuesto por el tipo `Bitmap` de B4A. `ShowMagnifier` crea 2 bitmaps nuevos en cada evento de touch-move (varias veces por segundo durante un arrastre); sin reciclar el bitmap anterior el heap nativo se agota (`OutOfMemoryError`) tras arrastres prolongados — se notaba sobre todo al mover esquinas de una caja de texto, que generan arrastres más largos que colocar una cota |
 
 ---
 

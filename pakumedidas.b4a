@@ -2065,6 +2065,8 @@ End Sub
 Sub ShowMagnifier(screenX As Float, screenY As Float, imgX As Float, imgY As Float)
 	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
 
+	Dim oldMagBmp As Bitmap = imgMagnifier.Bitmap
+
 	MagnifierVisible = True
 	pnlMagnifier.Visible = True
 
@@ -2102,6 +2104,7 @@ Sub ShowMagnifier(screenX As Float, screenY As Float, imgX As Float, imgY As Flo
 	Dim srcR2 As Rect : srcR2.Initialize(0, 0, cropSize, cropSize)
 	Dim dstR2 As Rect : dstR2.Initialize(0, 0, magPx, magPx)
 	cvs2.DrawBitmap(cropBmp, srcR2, dstR2)
+	RecycleBitmap(cropBmp)
 
 	' Crosshair
 	Dim mid As Int = magPx / 2
@@ -2110,6 +2113,20 @@ Sub ShowMagnifier(screenX As Float, screenY As Float, imgX As Float, imgY As Flo
 	cvs2.DrawLine(0, mid, magPx, mid, Colors.Red, 1dip)
 
 	imgMagnifier.Bitmap = magBmp
+	RecycleBitmap(oldMagBmp)
+End Sub
+
+' Bitmap.Recycle no esta expuesto por el tipo Bitmap de B4A; se llama via reflexion nativa.
+' ShowMagnifier crea 2 bitmaps nuevos en cada evento de touch-move (varias veces por segundo
+' mientras se arrastra), asi que sin reciclar el bitmap anterior el heap nativo se agota
+' (OutOfMemoryError) tras arrastres prolongados, como al mover esquinas de una caja.
+Sub RecycleBitmap(bmp As Bitmap)
+	If bmp = Null Or bmp.IsInitialized = False Then Return
+	Dim jo As JavaObject
+	jo = bmp
+	If jo.RunMethod("isRecycled", Null) = False Then
+		jo.RunMethod("recycle", Null)
+	End If
 End Sub
 
 Sub HideMagnifier
