@@ -66,6 +66,10 @@ Sub LoadFromJson(jsonStr As String)
 					bm.Put("c2x", bx + bw) : bm.Put("c2y", by + bh)
 					bm.Put("c3x", bx)      : bm.Put("c3y", by + bh)
 				End If
+				If bm.ContainsKey("bgColor") = False Then bm.Put("bgColor", Colors.White)
+				If bm.ContainsKey("textColor") = False Then bm.Put("textColor", Colors.Black)
+				If bm.ContainsKey("borderColor") = False Then bm.Put("borderColor", Colors.Black)
+				If bm.ContainsKey("fontSize") = False Then bm.Put("fontSize", 14)
 				TextBoxes.Add(bm)
 			Next
 		End If
@@ -181,6 +185,22 @@ End Sub
 
 Sub GetCotaFontSize(index As Int) As Int
 	Return Cotas.Get(index).As(Map).Get("fontSize")
+End Sub
+
+Sub GetTextBoxFontSize(index As Int) As Int
+	Return TextBoxes.Get(index).As(Map).Get("fontSize")
+End Sub
+
+Sub SetTextBoxFontSize(index As Int, fontSize As Int)
+	TextBoxes.Get(index).As(Map).Put("fontSize", fontSize)
+End Sub
+
+Sub GetCotaLineWidth(index As Int) As Int
+	Return Cotas.Get(index).As(Map).Get("lineWidth")
+End Sub
+
+Sub SetCotaLineWidth(index As Int, lineWidth As Int)
+	Cotas.Get(index).As(Map).Put("lineWidth", lineWidth)
 End Sub
 
 ' ─── Mover / Editar ───────────────────────────────────────────
@@ -355,6 +375,83 @@ Sub RotateAll90CCW(oldW As Int, oldH As Int)
 End Sub
 
 ' ─── Hit-test ─────────────────────────────────────────────────
+
+' Retorna TODOS los elementos que caen dentro de la tolerancia (para desambiguación)
+Sub HitTestAll(ix As Float, iy As Float, tolerancePx As Float) As List
+	Dim results As List
+	results.Initialize
+	Dim r As Map
+
+	For i = TextBoxes.Size - 1 To 0 Step -1
+		Dim m As Map = TextBoxes.Get(i)
+		Dim corners() As Float = GetBoxCorners(m)
+		Dim hitCorner As Int = -1
+		For h = 0 To 3
+			If Dist(ix, iy, corners(h * 2), corners(h * 2 + 1)) < tolerancePx * 1.8 Then
+				hitCorner = h
+				Exit
+			End If
+		Next
+		If hitCorner >= 0 Then
+			r.Initialize
+			r.Put("type", "box") : r.Put("index", i)
+			r.Put("part", hitCorner) : r.Put("dragMode", "boxhandle")
+			r.Put("label", "Caja: " & m.Get("text"))
+			results.Add(r)
+		Else If PointInQuad(ix, iy, corners(0), corners(1), corners(2), corners(3), _
+			corners(4), corners(5), corners(6), corners(7)) Then
+			r.Initialize
+			r.Put("type", "box") : r.Put("index", i)
+			r.Put("part", -1) : r.Put("dragMode", "box")
+			r.Put("label", "Caja: " & m.Get("text"))
+			results.Add(r)
+		End If
+	Next
+
+	For i = Cotas.Size - 1 To 0 Step -1
+		Dim m As Map = Cotas.Get(i)
+		Dim x1 As Float = m.Get("x1") : Dim y1 As Float = m.Get("y1")
+		Dim x2 As Float = m.Get("x2") : Dim y2 As Float = m.Get("y2")
+		Dim off As Float = m.Get("cotaOffset")
+		Dim textOffX As Float = m.Get("textOffX") : Dim textOffY As Float = m.Get("textOffY")
+		Dim lineLen As Float = Sqrt(Power(x2 - x1, 2) + Power(y2 - y1, 2))
+		If lineLen < 1 Then lineLen = 1
+		Dim nx As Float = -(y2 - y1) / lineLen
+		Dim ny As Float = (x2 - x1) / lineLen
+		Dim ox1 As Float = x1 + nx * off : Dim oy1 As Float = y1 + ny * off
+		Dim ox2 As Float = x2 + nx * off : Dim oy2 As Float = y2 + ny * off
+		Dim bestDrag As String = ""
+		Dim bestPart As Int = -1
+
+		If Dist(ix, iy, x1, y1) < tolerancePx * 2.0 Or Dist(ix, iy, ox1, oy1) < tolerancePx * 2.0 Then
+			bestDrag = "endpoint" : bestPart = 0
+		Else If Dist(ix, iy, x2, y2) < tolerancePx * 2.0 Or Dist(ix, iy, ox2, oy2) < tolerancePx * 2.0 Then
+			bestDrag = "endpoint" : bestPart = 1
+		End If
+		If bestDrag = "" Then
+			Dim tmx As Float = (ox1 + ox2) / 2 + nx * 18 + textOffX
+			Dim tmy As Float = (oy1 + oy2) / 2 + ny * 18 + textOffY
+			If Dist(ix, iy, tmx, tmy) < tolerancePx * 2.5 Then
+				bestDrag = "text" : bestPart = -1
+			End If
+		End If
+		If bestDrag = "" Then
+			If DistPointToSegment(ix, iy, ox1, oy1, ox2, oy2) < tolerancePx * 1.5 Then
+				bestDrag = "offset" : bestPart = -1
+			End If
+		End If
+
+		If bestDrag <> "" Then
+			r.Initialize
+			r.Put("type", "cota") : r.Put("index", i)
+			r.Put("part", bestPart) : r.Put("dragMode", bestDrag)
+			r.Put("label", "Cota: " & m.Get("text"))
+			results.Add(r)
+		End If
+	Next
+
+	Return results
+End Sub
 
 Sub HitTest(ix As Float, iy As Float, tolerancePx As Float) As Map
 	Dim result As Map

@@ -7,7 +7,7 @@ Library4=gestures
 Library5=sql
 Library6=json
 Library7=javaobject
-ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.LightTheme)~\n~AddPermission(android.permission.READ_EXTERNAL_STORAGE)~\n~AddPermission(android.permission.READ_MEDIA_IMAGES)~\n~AddPermission(android.permission.WRITE_EXTERNAL_STORAGE)
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.LightTheme)~\n~AddPermission(android.permission.READ_EXTERNAL_STORAGE)~\n~AddPermission(android.permission.READ_MEDIA_IMAGES)~\n~AddPermission(android.permission.WRITE_EXTERNAL_STORAGE)~\n~AddPermission(android.permission.CAMERA)
 Module1=Starter
 Module2=CotaEngine
 Module3=PdfExporter
@@ -120,22 +120,45 @@ Sub Globals
 	Private mTextInputP1Y As Float
 	Private mTextInputP2X As Float
 	Private mTextInputP2Y As Float
+
+	' FontSize picker overlay
+	Private pnlFontSize As Panel
+	Private edFontSizeCustom As EditText
+	Private btnFontSizeOK As Button
+	Private btnFontSizeCancel As Button
+	Private mFontSizeAction As String  ' "font_size_cota", "font_size_box", "line_width_cota"
+	Private mFontSizeElemIdx As Int
+	Private mFontSizeSelected As Int
+	Private FontSizePresetButtons() As Button
+
+	' Double-tap detection
+	Private LastTapTime As Long = 0
+	Private LastTapIndex As Int = -1
+	Private LastTapType As String = ""
+
+	' Estilo por defecto para nuevas cotas
+	Private DefaultCotaColor As Int
+	Private DefaultCotaLineWidth As Int = 3
+	Private DefaultCotaFontSize As Int = 14
+
+	' Cámara
+	Private btnCameraProject As Button
+	Private CameraTempPath As String = ""
 End Sub
 
 Sub Activity_Create(FirstTime As Boolean)
 	If FirstTime Then
 		CC.Initialize("CC")
-		SelectedIds.Initialize
-		UndoStack.Initialize
-		RedoStack.Initialize
 	End If
+	SelectedIds.Initialize
+	UndoStack.Initialize
+	RedoStack.Initialize
+	DefaultCotaColor = Colors.RGB(255, 204, 0)
 	BuildListPage
 	BuildEditorPage
 	BuildTextInputPanel
+	BuildFontSizePanel
 	ShowListPage
-End Sub
-
-Sub Activity_Resume
 End Sub
 
 Sub Activity_Pause(UserClosed As Boolean)
@@ -180,6 +203,13 @@ Sub BuildListPage
 	lblListTitle.TextColor = Colors.White
 	lblListTitle.Gravity = Gravity.CENTER_VERTICAL
 	pnlTopBar.AddView(lblListTitle, 16dip, 0, 200dip, 56dip)
+
+	btnCameraProject.Initialize("btnCameraProject")
+	btnCameraProject.Text = "Foto"
+	btnCameraProject.TextSize = 12
+	btnCameraProject.Color = Colors.RGB(33, 120, 200)
+	btnCameraProject.TextColor = Colors.White
+	pnlTopBar.AddView(btnCameraProject, 100%x - 176dip, 8dip, 52dip, 40dip)
 
 	btnNewProject.Initialize("btnNewProject")
 	btnNewProject.Text = "+ Nueva"
@@ -227,6 +257,199 @@ Sub BuildTextInputPanel
 	pnlTextInput.AddView(btnTextInputCancel, 24dip + (panW - 36dip) / 2, 104dip, (panW - 36dip) / 2, 40dip)
 End Sub
 
+Sub BuildFontSizePanel
+	Dim panW As Int = 320dip
+	Dim panH As Int = 210dip
+	Dim cx As Int = (100%x - panW) / 2
+	Dim cy As Int = (100%y - panH) / 2
+	pnlFontSize.Initialize("")
+	pnlFontSize.Color = Colors.RGB(40, 40, 40)
+	pnlFontSize.Visible = False
+	Activity.AddView(pnlFontSize, cx, cy, panW, panH)
+
+	' Título
+	Dim lblTitle As Label
+	lblTitle.Initialize("")
+	lblTitle.Text = "Tamano:"
+	lblTitle.TextColor = Colors.White
+	lblTitle.TextSize = 14
+	pnlFontSize.AddView(lblTitle, 12dip, 8dip, panW - 24dip, 28dip)
+
+	' Fila 1 de presets: 8, 10, 12, 14, 18
+	' Fila 2 de presets: 24, 32, 48, 64, 96
+	Dim presets() As Int = Array As Int(8, 10, 12, 14, 18, 24, 32, 48, 64, 96)
+	Dim btnW As Int = 52dip
+	Dim btnH As Int = 38dip
+	Dim gap As Int = 6dip
+	Dim startX As Int = 12dip
+	Dim row1Y As Int = 40dip
+	Dim row2Y As Int = 40dip + btnH + gap
+
+	Dim FontSizePresetButtonsTmp(10) As Button
+	Dim i As Int
+	For i = 0 To 9
+		Dim btn As Button
+		btn.Initialize("btnFontPreset")
+		btn.Text = presets(i)
+		btn.TextSize = 12
+		btn.Color = Colors.RGB(80, 80, 80)
+		btn.TextColor = Colors.White
+		btn.Tag = presets(i)
+		Dim rowY As Int
+		Dim col As Int
+		If i < 5 Then
+			rowY = row1Y
+			col = i
+		Else
+			rowY = row2Y
+			col = i - 5
+		End If
+		pnlFontSize.AddView(btn, startX + col * (btnW + gap), rowY, btnW, btnH)
+		FontSizePresetButtonsTmp(i) = btn
+	Next
+	FontSizePresetButtons = FontSizePresetButtonsTmp
+
+	' EditText custom
+	Dim customY As Int = row2Y + btnH + 12dip
+	edFontSizeCustom.Initialize("edFontSizeCustom")
+	edFontSizeCustom.SingleLine = True
+	edFontSizeCustom.TextSize = 14
+	edFontSizeCustom.TextColor = Colors.White
+	edFontSizeCustom.Hint = "Valor personalizado"
+	pnlFontSize.AddView(edFontSizeCustom, 12dip, customY, panW - 24dip, 40dip)
+
+	' OK / Cancelar
+	Dim btnY As Int = customY + 48dip
+	btnFontSizeOK.Initialize("btnFontSizeOK")
+	btnFontSizeOK.Text = "OK"
+	btnFontSizeOK.TextSize = 14
+	pnlFontSize.AddView(btnFontSizeOK, 12dip, btnY, (panW - 36dip) / 2, 40dip)
+
+	btnFontSizeCancel.Initialize("btnFontSizeCancel")
+	btnFontSizeCancel.Text = "Cancelar"
+	btnFontSizeCancel.TextSize = 12
+	pnlFontSize.AddView(btnFontSizeCancel, 24dip + (panW - 36dip) / 2, btnY, (panW - 36dip) / 2, 40dip)
+End Sub
+
+Sub ShowFontSizePanel(currentValue As Int, action As String, elemIdx As Int)
+	mFontSizeAction = action
+	mFontSizeElemIdx = elemIdx
+	mFontSizeSelected = currentValue
+	edFontSizeCustom.Text = "" & currentValue
+
+	' Resaltar el botón que coincide con el valor actual
+	Dim presets() As Int = Array As Int(8, 10, 12, 14, 18, 24, 32, 48, 64, 96)
+	Dim i As Int
+	For i = 0 To 9
+		If presets(i) = currentValue Then
+			FontSizePresetButtons(i).Color = Colors.RGB(33, 150, 243)
+		Else
+			FontSizePresetButtons(i).Color = Colors.RGB(80, 80, 80)
+		End If
+	Next
+
+	pnlFontSize.BringToFront
+	pnlFontSize.Visible = True
+End Sub
+
+Sub ShowLineWidthPanel(currentValue As Int, elemIdx As Int)
+	' Reutilizamos el panel de font size cambiando los presets visibles
+	mFontSizeAction = "line_width_cota"
+	mFontSizeElemIdx = elemIdx
+	mFontSizeSelected = currentValue
+	edFontSizeCustom.Text = "" & currentValue
+
+	Dim linePresets() As Int = Array As Int(1, 2, 3, 4, 5, 6, 8, 10, 0, 0)
+	Dim i As Int
+	For i = 0 To 9
+		If linePresets(i) = 0 Then
+			FontSizePresetButtons(i).Visible = False
+		Else
+			FontSizePresetButtons(i).Visible = True
+			FontSizePresetButtons(i).Text = linePresets(i)
+			FontSizePresetButtons(i).Tag = linePresets(i)
+			If linePresets(i) = currentValue Then
+				FontSizePresetButtons(i).Color = Colors.RGB(33, 150, 243)
+			Else
+				FontSizePresetButtons(i).Color = Colors.RGB(80, 80, 80)
+			End If
+		End If
+	Next
+
+	pnlFontSize.BringToFront
+	pnlFontSize.Visible = True
+End Sub
+
+Sub btnFontPreset_Click
+	Dim btn As Button = Sender
+	Dim val As Int = btn.Tag
+	mFontSizeSelected = val
+	edFontSizeCustom.Text = "" & val
+
+	' Actualizar resaltado
+	Dim i As Int
+	For i = 0 To 9
+		If FontSizePresetButtons(i).IsInitialized Then
+			If FontSizePresetButtons(i).Tag = val Then
+				FontSizePresetButtons(i).Color = Colors.RGB(33, 150, 243)
+			Else
+				FontSizePresetButtons(i).Color = Colors.RGB(80, 80, 80)
+			End If
+		End If
+	Next
+End Sub
+
+Sub btnFontSizeOK_Click
+	pnlFontSize.Visible = False
+	Dim val As Int = mFontSizeSelected
+	' Si el usuario editó manualmente el campo, usar ese valor
+	If IsNumber(edFontSizeCustom.Text) Then val = edFontSizeCustom.Text
+
+	Select mFontSizeAction
+		Case "font_size_cota"
+			If val >= 4 And val <= 200 Then
+				SaveUndoState
+				CotaEngine.SetCotaFontSize(mFontSizeElemIdx, val)
+				DefaultCotaFontSize = val
+				RenderAll
+			End If
+		Case "font_size_box"
+			If val >= 4 And val <= 200 Then
+				SaveUndoState
+				CotaEngine.SetTextBoxFontSize(mFontSizeElemIdx, val)
+				RenderAll
+			End If
+		Case "line_width_cota"
+			If val >= 1 And val <= 20 Then
+				SaveUndoState
+				CotaEngine.SetCotaLineWidth(mFontSizeElemIdx, val)
+				DefaultCotaLineWidth = val
+				RenderAll
+			End If
+	End Select
+
+	' Restaurar presets de font size para la próxima vez
+	RestoreFontSizePresets
+	mFontSizeAction = ""
+End Sub
+
+Sub btnFontSizeCancel_Click
+	pnlFontSize.Visible = False
+	RestoreFontSizePresets
+	mFontSizeAction = ""
+End Sub
+
+Sub RestoreFontSizePresets
+	Dim presets() As Int = Array As Int(8, 10, 12, 14, 18, 24, 32, 48, 64, 96)
+	Dim i As Int
+	For i = 0 To 9
+		FontSizePresetButtons(i).Visible = True
+		FontSizePresetButtons(i).Text = presets(i)
+		FontSizePresetButtons(i).Tag = presets(i)
+		FontSizePresetButtons(i).Color = Colors.RGB(80, 80, 80)
+	Next
+End Sub
+
 Sub ShowTextInput(Prompt As String, Default As String, Action As String)
 	mTextInputAction = Action
 	lblTextInputPrompt.Text = Prompt
@@ -250,7 +473,6 @@ End Sub
 Sub btnTextInputOK_Click
 	pnlTextInput.Visible = False
 	Dim txt As String = edTextInput.Text
-	Dim newFontSize As Int
 	If txt = "" Then Return
 	Select mTextInputAction
 		Case "rename_project"
@@ -259,7 +481,7 @@ Sub btnTextInputOK_Click
 			RefreshProjectList
 		Case "new_cota"
 			SaveUndoState
-			CotaEngine.AddCota(mTextInputP1X, mTextInputP1Y, mTextInputP2X, mTextInputP2Y, txt, 0, -30, 25, Colors.RGB(255, 204, 0), 3, 14, 0)
+			CotaEngine.AddCota(mTextInputP1X, mTextInputP1Y, mTextInputP2X, mTextInputP2Y, txt, 0, -30, 25, DefaultCotaColor, DefaultCotaLineWidth, DefaultCotaFontSize, 0)
 			TouchMode = "none"
 			RenderAll
 		Case "edit_cota"
@@ -273,21 +495,17 @@ Sub btnTextInputOK_Click
 			SaveUndoState
 			CotaEngine.SetTextBoxText(mTextInputElemIdx, txt)
 			RenderAll
-		Case "font_size_cota"
-			If IsNumber(txt) Then newFontSize = txt
-			If newFontSize >= 4 And newFontSize <= 200 Then
-				SaveUndoState
-				CotaEngine.SetCotaFontSize(mTextInputElemIdx, newFontSize)
-				RenderAll
-			End If
 	End Select
 	mTextInputAction = ""
 End Sub
 
 Sub btnTextInputCancel_Click
 	pnlTextInput.Visible = False
+	If mTextInputAction = "new_cota" Then
+		TouchMode = "none"
+		CotaP1X = -1
+	End If
 	mTextInputAction = ""
-	If mTextInputAction = "new_cota" Then TouchMode = "none"
 End Sub
 
 Sub ShowListPage
@@ -413,7 +631,125 @@ Sub CC_Result(Success As Boolean, Dir As String, FileName As String)
 	If Success = False Then Return
 
 	' Cargar y redimensionar
-	Dim bmp As Bitmap = LoadBitmap(Dir, FileName)
+	Dim bmp As Bitmap
+	Try
+		bmp = LoadBitmap(Dir, FileName)
+	Catch
+		Log("CC_Result LoadBitmap error: " & LastException.Message)
+		ToastMessageShow("No se pudo cargar la imagen", True)
+		Return
+	End Try
+	If bmp.Width > 1920 Or bmp.Height > 1080 Then
+		Dim ratio As Float = Min(1920.0 / bmp.Width, 1080.0 / bmp.Height)
+		Dim newW As Int = bmp.Width * ratio
+		Dim newH As Int = bmp.Height * ratio
+		Dim resized As Bitmap
+		resized.InitializeMutable(newW, newH)
+		Dim cvs As Canvas
+		cvs.Initialize2(resized)
+		Dim srcRect As Rect : srcRect.Initialize(0, 0, bmp.Width, bmp.Height)
+		Dim dstRect As Rect : dstRect.Initialize(0, 0, newW, newH)
+		cvs.DrawBitmap(bmp, srcRect, dstRect)
+		bmp = resized
+	End If
+
+	' Guardar imagen
+	Dim imgName As String = "img_" & DateTime.Now & ".jpg"
+	Try
+		Dim out As OutputStream = File.OpenOutput(File.DirInternal, imgName, False)
+		bmp.WriteToStream(out, 95, "JPEG")
+		out.Close
+	Catch
+		Log("CC_Result save error: " & LastException.Message)
+		ToastMessageShow("Error al guardar la imagen", True)
+		Return
+	End Try
+
+	' Crear thumbnail
+	Dim thumbName As String = "thumb_" & DateTime.Now & ".jpg"
+	Dim thumbBmp As Bitmap = CreateScaledBitmap(bmp, 160, 160)
+	Try
+		Dim out2 As OutputStream = File.OpenOutput(File.DirInternal, thumbName, False)
+		thumbBmp.WriteToStream(out2, 80, "JPEG")
+		out2.Close
+	Catch
+		Log("CC_Result thumb error: " & LastException.Message)
+	End Try
+
+	' Nombre del proyecto desde nombre archivo
+	Dim projName As String = GetContentDisplayName(Dir, FileName)
+	If projName.Contains(".") Then projName = projName.SubString2(0, projName.LastIndexOf("."))
+	If projName = "" Or projName.StartsWith("content") Then projName = "Proyecto " & DateTime.Date(DateTime.Now)
+	If projName.Length > 30 Then projName = projName.SubString2(0, 30)
+
+	' Insertar en DB
+	Dim emptyJson As String = $"{"cotas":[],"textBoxes":[]}"$
+	Starter.DB.ExecNonQuery2("INSERT INTO projects (name, image_path, thumb_path, annotations_json, created_at, modified_at) VALUES (?,?,?,?,?,?)", _
+		Array As String(projName, imgName, thumbName, emptyJson, DateTime.Now, DateTime.Now))
+
+	' Obtener ID del nuevo proyecto
+	Dim newId As Int = -1
+	Dim rs As ResultSet = Starter.DB.ExecQuery("SELECT last_insert_rowid() AS id")
+	If rs.NextRow Then newId = rs.GetInt("id")
+	rs.Close
+
+	If newId > 0 Then OpenEditor(newId)
+End Sub
+
+Sub btnCameraProject_Click
+	If MultiSelectMode Then Return
+	Try
+		' Limpiar archivo temporal previo si existe
+		If CameraTempPath <> "" And File.Exists(File.DirInternal, CameraTempPath) Then
+			File.Delete(File.DirInternal, CameraTempPath)
+		End If
+		CameraTempPath = "camera_temp_" & DateTime.Now & "_" & Rnd(0, 9999) & ".jpg"
+		Dim f As JavaObject
+		f.InitializeNewInstance("java.io.File", Array(File.DirInternal, CameraTempPath))
+		' StrictMode bypass para file:// URI en la cámara
+		Dim smBuilder As JavaObject
+		smBuilder.InitializeNewInstance("android.os.StrictMode$VmPolicy$Builder", Null)
+		smBuilder.RunMethod("detectAll", Null)
+		Dim sm As JavaObject
+		sm.InitializeStatic("android.os.StrictMode")
+		sm.RunMethod("setVmPolicy", Array(smBuilder.RunMethod("build", Null)))
+		Dim joUri As JavaObject
+		joUri.InitializeStatic("android.net.Uri")
+		Dim fileUri As Object = joUri.RunMethod("fromFile", Array(f))
+		Dim intent As Intent
+		intent.Initialize("android.media.action.IMAGE_CAPTURE", "")
+		Dim joIntent As JavaObject = intent
+		joIntent.RunMethod("putExtra", Array("output", fileUri))
+		StartActivity(intent)
+	Catch
+		Log("Camera error: " & LastException.Message)
+		ToastMessageShow("No se pudo abrir la camara", False)
+	End Try
+End Sub
+
+Sub Activity_Resume
+	' Verificar si hay foto de cámara pendiente
+	If CameraTempPath <> "" Then
+		If File.Exists(File.DirInternal, CameraTempPath) Then
+			Dim tempPath As String = CameraTempPath
+			CameraTempPath = ""
+			Try
+				Dim bmp As Bitmap = LoadBitmap(File.DirInternal, tempPath)
+				ProcessCameraPhoto(bmp)
+			Catch
+				Log("Camera result error: " & LastException.Message)
+				ToastMessageShow("Error al procesar la foto", True)
+			End Try
+			If File.Exists(File.DirInternal, tempPath) Then File.Delete(File.DirInternal, tempPath)
+		Else
+			' Usuario canceló la cámara
+			CameraTempPath = ""
+		End If
+	End If
+End Sub
+
+Sub ProcessCameraPhoto(bmp As Bitmap)
+	' Redimensionar si es grande
 	If bmp.Width > 1920 Or bmp.Height > 1080 Then
 		Dim ratio As Float = Min(1920.0 / bmp.Width, 1080.0 / bmp.Height)
 		Dim newW As Int = bmp.Width * ratio
@@ -441,10 +777,8 @@ Sub CC_Result(Success As Boolean, Dir As String, FileName As String)
 	thumbBmp.WriteToStream(out2, 80, "JPEG")
 	out2.Close
 
-	' Nombre del proyecto desde nombre archivo
-	Dim projName As String = GetContentDisplayName(Dir, FileName)
-	If projName.Contains(".") Then projName = projName.SubString2(0, projName.LastIndexOf("."))
-	If projName = "" Or projName.StartsWith("content") Then projName = "Proyecto " & DateTime.Date(DateTime.Now)
+	' Nombre del proyecto
+	Dim projName As String = "Foto " & DateTime.Date(DateTime.Now) & " " & DateTime.Time(DateTime.Now)
 	If projName.Length > 30 Then projName = projName.SubString2(0, 30)
 
 	' Insertar en DB
@@ -452,13 +786,12 @@ Sub CC_Result(Success As Boolean, Dir As String, FileName As String)
 	Starter.DB.ExecNonQuery2("INSERT INTO projects (name, image_path, thumb_path, annotations_json, created_at, modified_at) VALUES (?,?,?,?,?,?)", _
 		Array As String(projName, imgName, thumbName, emptyJson, DateTime.Now, DateTime.Now))
 
-	' Obtener ID del nuevo proyecto
+	' Obtener ID y abrir editor
+	Dim newId As Int = -1
 	Dim rs As ResultSet = Starter.DB.ExecQuery("SELECT last_insert_rowid() AS id")
-	rs.NextRow
-	Dim newId As Int = rs.GetInt("id")
+	If rs.NextRow Then newId = rs.GetInt("id")
 	rs.Close
-
-	OpenEditor(newId)
+	If newId > 0 Then OpenEditor(newId)
 End Sub
 
 Sub CreateScaledBitmap(src As Bitmap, MaxW As Int, MaxH As Int) As Bitmap
@@ -842,7 +1175,13 @@ Sub OpenEditor(ProjectId As Int)
 
 	' Cargar imagen
 	If File.Exists(File.DirInternal, imgPath) Then
-		OriginalBitmap = LoadBitmap(File.DirInternal, imgPath)
+		Try
+			OriginalBitmap = LoadBitmap(File.DirInternal, imgPath)
+		Catch
+			Log("OpenEditor LoadBitmap error: " & LastException.Message)
+			ToastMessageShow("Error al cargar la imagen", True)
+			Return
+		End Try
 	Else
 		ToastMessageShow("Imagen no encontrada", True)
 		Return
@@ -967,26 +1306,32 @@ End Sub
 
 Sub btnSave_Click
 	If OriginalBitmap = Null Or OriginalBitmap.IsInitialized = False Then Return
-	SaveCurrentProject
+	Try
+		SaveCurrentProject
 
-	' Render to full-res bitmap
-	Dim outBmp As Bitmap
-	outBmp.InitializeMutable(OriginalBitmap.Width, OriginalBitmap.Height)
-	Dim cvs As Canvas
-	cvs.Initialize2(outBmp)
-	Dim r As Rect : r.Initialize(0, 0, OriginalBitmap.Width, OriginalBitmap.Height)
-	cvs.DrawBitmap(OriginalBitmap, r, r)
-	CotaEngine.RenderOnCanvas(cvs, 1.0, 0, 0, OriginalBitmap.Width, OriginalBitmap.Height)
+		' Render to full-res bitmap
+		Dim outBmp As Bitmap
+		outBmp.InitializeMutable(OriginalBitmap.Width, OriginalBitmap.Height)
+		Dim cvs As Canvas
+		cvs.Initialize2(outBmp)
+		Dim r As Rect : r.Initialize(0, 0, OriginalBitmap.Width, OriginalBitmap.Height)
+		cvs.DrawBitmap(OriginalBitmap, r, r)
+		CotaEngine.RenderOnCanvas(cvs, 1.0, 0, 0, OriginalBitmap.Width, OriginalBitmap.Height)
 
-	' Save to shared folder
-	Dim sharedDir As String = File.Combine(File.DirInternal, "shared")
-	File.MakeDir(File.DirInternal, "shared")
-	Dim fileName As String = "PakuMedidas_" & DateTime.Now & ".jpg"
-	Dim out As OutputStream = File.OpenOutput(sharedDir, fileName, False)
-	outBmp.WriteToStream(out, 95, "JPEG")
-	out.Close
+		' Save to shared folder
+		Dim sharedDir As String = File.Combine(File.DirInternal, "shared")
+		File.MakeDir(File.DirInternal, "shared")
+		Dim fileName As String = "PakuMedidas_" & DateTime.Now & ".jpg"
+		Dim out As OutputStream = File.OpenOutput(sharedDir, fileName, False)
+		outBmp.WriteToStream(out, 95, "JPEG")
+		out.Close
 
-	ToastMessageShow("JPG guardado: " & fileName, True)
+		ToastMessageShow("JPG guardado: " & fileName, True)
+	Catch
+		Log("Error en btnSave_Click: " & LastException)
+		Starter.AppLog("btnSave_Click error: " & LastException)
+		ToastMessageShow("Error al guardar el JPG: " & LastException.Message, True)
+	End Try
 End Sub
 
 Sub btnPdf_Click
@@ -998,7 +1343,12 @@ Sub btnPdf_Click
 	Dim fileName As String = "PakuMedidas_" & DateTime.Now & ".pdf"
 
 	PdfExporter.ExportPdf(sharedDir, fileName, OriginalBitmap, CotaEngine.GetCotas, CotaEngine.GetTextBoxes)
-	ToastMessageShow("PDF guardado: " & fileName, True)
+	If File.Exists(sharedDir, fileName) Then
+		ToastMessageShow("PDF guardado: " & fileName, True)
+	Else
+		Starter.AppLog("btnPdf_Click: PDF no generado - " & fileName)
+		ToastMessageShow("Error al generar el PDF", True)
+	End If
 End Sub
 
 Sub btnShare_Click
@@ -1010,6 +1360,12 @@ Sub btnShare_Click
 	File.MakeDir(File.DirInternal, "shared")
 	Dim fileName As String = "PakuMedidas_" & EditProjectId & ".pdf"
 	PdfExporter.ExportPdf(sharedDir, fileName, OriginalBitmap, CotaEngine.GetCotas, CotaEngine.GetTextBoxes)
+
+	If File.Exists(sharedDir, fileName) = False Then
+		Starter.AppLog("btnShare_Click: PDF no generado - " & fileName)
+		ToastMessageShow("Error al generar el PDF para compartir", True)
+		Return
+	End If
 
 	' Compartir via intent
 	ShareFile(sharedDir, fileName, "application/pdf")
@@ -1126,6 +1482,14 @@ Sub CopyToMediaStore(FilePath As String, FileName As String, MimeType As String)
 		Return dlUri
 	Catch
 		Log("CopyToMediaStore error: " & LastException)
+		Try
+			If fis.IsInitialized Then fis.RunMethod("close", Null)
+		Catch
+		End Try
+		Try
+			If os.IsInitialized Then os.RunMethod("close", Null)
+		Catch
+		End Try
 		Return Null
 	End Try
 End Sub
@@ -1337,16 +1701,57 @@ Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
 
 	Select ActiveTool
 		Case "move"
-			' Hit test para elementos
-			Dim hit As Map = CotaEngine.HitTest(ix, iy, 30 / (BaseScale * ZoomLevel))
-			If hit.Get("type") <> "" Then
-				SelectedType = hit.Get("type")
-				SelectedIndex = hit.Get("index")
-				DragPartIndex = hit.Get("part")
-				TouchMode = "drag_" & hit.Get("dragMode")
-				SaveUndoState
-				RenderAll
+			Dim tol As Float = 30 / (BaseScale * ZoomLevel)
+			Dim hits As List = CotaEngine.HitTestAll(ix, iy, tol)
+
+			If hits.Size > 1 Then
+				' Desambiguación: mostrar menú para elegir
+				Dim labels As List
+				labels.Initialize
+				Dim i As Int
+				For i = 0 To hits.Size - 1
+					Dim h As Map = hits.Get(i)
+					labels.Add(h.Get("label"))
+				Next
+				Dim result As Int = InputList(labels, "Seleccionar elemento", -1)
+				If result >= 0 Then
+					Dim chosen As Map = hits.Get(result)
+					ApplyHitResult(chosen)
+				Else
+					SelectedType = ""
+					SelectedIndex = -1
+					TouchMode = "pan"
+					RenderAll
+				End If
+			Else If hits.Size = 1 Then
+				Dim chosen As Map = hits.Get(0)
+				' Doble-tap: si es el mismo elemento y < 400ms, editar texto
+				Dim now As Long = DateTime.Now
+				If chosen.Get("type") = LastTapType And chosen.Get("index") = LastTapIndex And (now - LastTapTime) < 400 Then
+					LastTapTime = 0
+					LastTapIndex = -1
+					LastTapType = ""
+					' Abrir editor de texto directamente
+					SelectedType = chosen.Get("type")
+					SelectedIndex = chosen.Get("index")
+					RenderAll
+					If SelectedType = "cota" Then
+						mTextInputElemIdx = SelectedIndex
+						ShowTextInput("Medida:", CotaEngine.GetCotaText(SelectedIndex), "edit_cota")
+					Else If SelectedType = "box" Then
+						mTextInputElemIdx = SelectedIndex
+						ShowTextInput("Texto:", CotaEngine.GetTextBoxText(SelectedIndex), "edit_box")
+					End If
+					Return
+				End If
+				LastTapTime = now
+				LastTapIndex = chosen.Get("index")
+				LastTapType = chosen.Get("type")
+				ApplyHitResult(chosen)
 			Else
+				LastTapTime = 0
+				LastTapIndex = -1
+				LastTapType = ""
 				SelectedType = ""
 				SelectedIndex = -1
 				TouchMode = "pan"
@@ -1384,15 +1789,43 @@ Sub HandleTouchDown(X As Float, Y As Float, PointerCount As Int)
 			ShowTextInput("Texto:", "Texto", "new_box")
 
 		Case "delete"
-			Dim hit As Map = CotaEngine.HitTest(ix, iy, 30 / (BaseScale * ZoomLevel))
-			If hit.Get("type") <> "" Then
+			Dim tol As Float = 30 / (BaseScale * ZoomLevel)
+			Dim hits As List = CotaEngine.HitTestAll(ix, iy, tol)
+			If hits.Size > 1 Then
+				Dim labels As List
+				labels.Initialize
+				Dim i As Int
+				For i = 0 To hits.Size - 1
+					Dim h As Map = hits.Get(i)
+					labels.Add(h.Get("label"))
+				Next
+				Dim result As Int = InputList(labels, "Eliminar elemento", -1)
+				If result >= 0 Then
+					Dim chosen As Map = hits.Get(result)
+					SaveUndoState
+					CotaEngine.DeleteElement(chosen.Get("type"), chosen.Get("index"))
+					SelectedType = ""
+					SelectedIndex = -1
+					RenderAll
+				End If
+			Else If hits.Size = 1 Then
+				Dim chosen As Map = hits.Get(0)
 				SaveUndoState
-				CotaEngine.DeleteElement(hit.Get("type"), hit.Get("index"))
+				CotaEngine.DeleteElement(chosen.Get("type"), chosen.Get("index"))
 				SelectedType = ""
 				SelectedIndex = -1
 				RenderAll
 			End If
 	End Select
+End Sub
+
+Sub ApplyHitResult(hit As Map)
+	SelectedType = hit.Get("type")
+	SelectedIndex = hit.Get("index")
+	DragPartIndex = hit.Get("part")
+	TouchMode = "drag_" & hit.Get("dragMode")
+	SaveUndoState
+	RenderAll
 End Sub
 
 Sub HandleTouchMove(X As Float, Y As Float, PointerCount As Int)
@@ -1526,7 +1959,7 @@ Sub pnlCanvas_LongClick
 	If SelectedType = "" Or SelectedIndex < 0 Then Return
 
 	If SelectedType = "cota" Then
-		Dim result As Int = InputList(Array("Editar texto", "Cambiar color", "Rotar texto " & Chr(0x2192), "Rotar texto " & Chr(0x2190), "Tamano texto", "Duplicar", "Eliminar"), "Cota", -1)
+		Dim result As Int = InputList(Array("Editar texto", "Cambiar color", "Rotar texto " & Chr(0x2192), "Rotar texto " & Chr(0x2190), "Tamano texto", "Grosor linea", "Duplicar", "Eliminar"), "Cota", -1)
 		Dim curAngle As Int
 		Select result
 			Case 0 ' Editar texto
@@ -1550,11 +1983,14 @@ Sub pnlCanvas_LongClick
 				RenderAll
 			Case 4 ' Tamano texto
 				ShowFontSizePicker(SelectedIndex)
-			Case 5 ' Duplicar
+			Case 5 ' Grosor linea
+				Dim curWidth As Int = CotaEngine.GetCotaLineWidth(SelectedIndex)
+				ShowLineWidthPanel(curWidth, SelectedIndex)
+			Case 6 ' Duplicar
 				SaveUndoState
 				CotaEngine.DuplicateCota(SelectedIndex)
 				RenderAll
-			Case 6 ' Eliminar
+			Case 7 ' Eliminar
 				SaveUndoState
 				CotaEngine.DeleteElement("cota", SelectedIndex)
 				SelectedType = ""
@@ -1563,7 +1999,7 @@ Sub pnlCanvas_LongClick
 		End Select
 
 	Else If SelectedType = "box" Then
-		Dim result As Int = InputList(Array("Editar texto", "Color fondo", "Color texto", "Color borde", "Duplicar", "Eliminar"), "Caja de texto", -1)
+		Dim result As Int = InputList(Array("Editar texto", "Color fondo", "Color texto", "Color borde", "Tamano texto", "Duplicar", "Eliminar"), "Caja de texto", -1)
 		Select result
 			Case 0 ' Editar texto
 				mTextInputElemIdx = SelectedIndex
@@ -1574,11 +2010,14 @@ Sub pnlCanvas_LongClick
 				ShowColorPicker("box_text", SelectedIndex)
 			Case 3 ' Color borde
 				ShowColorPicker("box_border", SelectedIndex)
-			Case 4 ' Duplicar
+			Case 4 ' Tamano texto
+				Dim curSize As Int = CotaEngine.GetTextBoxFontSize(SelectedIndex)
+				ShowFontSizePanel(curSize, "font_size_box", SelectedIndex)
+			Case 5 ' Duplicar
 				SaveUndoState
 				CotaEngine.DuplicateTextBox(SelectedIndex)
 				RenderAll
-			Case 5 ' Eliminar
+			Case 6 ' Eliminar
 				SaveUndoState
 				CotaEngine.DeleteElement("box", SelectedIndex)
 				SelectedType = ""
@@ -1601,6 +2040,7 @@ Sub ShowColorPicker(Target As String, Index As Int)
 		Select Target
 			Case "cota"
 				CotaEngine.SetCotaColor(Index, c)
+				DefaultCotaColor = c
 			Case "box_bg"
 				CotaEngine.SetTextBoxBgColor(Index, c)
 			Case "box_text"
@@ -1613,9 +2053,8 @@ Sub ShowColorPicker(Target As String, Index As Int)
 End Sub
 
 Sub ShowFontSizePicker(cotaIdx As Int)
-	mTextInputElemIdx = cotaIdx
 	Dim curSize As Int = CotaEngine.GetCotaFontSize(cotaIdx)
-	ShowTextInput("Tamano de texto:", curSize, "font_size_cota")
+	ShowFontSizePanel(curSize, "font_size_cota", cotaIdx)
 End Sub
 
 
@@ -1642,8 +2081,8 @@ Sub ShowMagnifier(screenX As Float, screenY As Float, imgX As Float, imgY As Flo
 
 	' Crop region (30px radius around point in image space)
 	Dim radius As Int = 30
-	Dim cx As Int = Max(radius, Min(imgX, OriginalBitmap.Width - radius))
-	Dim cy As Int = Max(radius, Min(imgY, OriginalBitmap.Height - radius))
+	Dim cx As Int = Max(radius, Min(Round(imgX), OriginalBitmap.Width - radius))
+	Dim cy As Int = Max(radius, Min(Round(imgY), OriginalBitmap.Height - radius))
 
 	Dim cropSize As Int = radius * 2
 	Dim cropBmp As Bitmap

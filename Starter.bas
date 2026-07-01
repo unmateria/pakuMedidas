@@ -41,3 +41,17 @@ End Sub
 
 Sub Service_Destroy
 End Sub
+
+Sub AppLog(msg As String)
+	Try
+		File.MakeDir(File.DirInternal, "logs")
+		Dim logDir As String = File.Combine(File.DirInternal, "logs")
+		Dim ts As String = DateTime.Date(DateTime.Now) & " " & DateTime.Time(DateTime.Now)
+		Dim out As OutputStream = File.OpenOutput(logDir, "pakumedidas.log", True)
+		Dim w As TextWriter
+		w.Initialize(out)
+		w.WriteLine(ts & " - " & msg)
+		w.Close
+	Catch
+	End Try
+End Sub

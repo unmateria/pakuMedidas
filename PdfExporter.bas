@@ -78,7 +78,8 @@ Sub ExportPdf(Dir As String, FileName As String, imgBmp As Bitmap, cotas As List
 			' Borde
 			paint.RunMethod("setStyle", Array(GetPaintStyle("STROKE")))
 			paint.RunMethod("setColor", Array(bdC))
-			paint.RunMethod("setStrokeWidth", Array(2.0))
+			Dim boxBorderWidth As Float = 2.0
+			paint.RunMethod("setStrokeWidth", Array(boxBorderWidth))
 			nativeCanvas.RunMethod("drawPath", Array(path, paint))
 
 			' Texto en centroide
@@ -169,6 +170,7 @@ Sub ExportPdf(Dir As String, FileName As String, imgBmp As Bitmap, cotas As List
 		Log("PDF exported: " & filePath)
 	Catch
 		Log("PdfExporter error: " & LastException)
+		Starter.AppLog("PdfExporter.ExportPdf error: " & LastException)
 	End Try
 End Sub
 

@@ -1,5 +1,7 @@
 # PakuMedidas
 
+🇪🇸 README en español · 🇬🇧 [English version](README.en.md)
+
 App Android para anotar fotos de fachadas con cotas y cajas de texto. Diseñada para rotulistas, instaladores y técnicos que necesitan documentar mediciones en campo de forma rápida.
 
 ---
@@ -43,6 +45,12 @@ Toma una foto de cualquier fachada o espacio y añade anotaciones profesionales 
 
 ---
 
+## Descargar
+
+El APK está en la página de [releases de GitHub](https://github.com/unmateria/pakuMedidas/releases/latest). Descárgalo, habilita "orígenes desconocidos" si tu dispositivo lo pide, e instálalo.
+
+---
+
 ## Compilar desde fuente
 
 Requiere [Basic4Android (B4A)](https://www.b4x.com/b4a.html) v13.3 o superior.
@@ -57,7 +65,7 @@ Instalar desde el B4A Library Manager:
 ```powershell
 $iniPath  = "$env:APPDATA\Anywhere Software\Basic4android\b4xV5.ini"
 $builder  = "C:\Program Files\Anywhere Software\B4A\B4ABuilder.exe"
-$folder   = "C:\desarrollo\pakumedidas"
+$folder   = $PSScriptRoot
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = $builder
@@ -105,4 +113,6 @@ PdfExporter.bas     — Exportación PDF vectorial nativa (android.graphics.pdf)
 
 ## Licencia
 
-MIT
+PolyForm Noncommercial 1.0.0 + cláusula de reciprocidad — ver [LICENSE.md](LICENSE.md).
+
+Uso no comercial libre. El uso comercial del original o de cualquier derivado requiere permiso explícito por escrito del autor. Si distribuyes una versión modificada, tiene que seguir siendo abierta bajo esta misma licencia.

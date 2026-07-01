@@ -1,0 +1,9 @@
+Objects/
+bin/
+obj/
+*.apk
+*.dex
+*.class
+.claude/
+*.meta
+nul
