@@ -36,6 +36,26 @@ buscando el `.b4a` en la CWD aunque `BaseFolder` sea correcto.
 
 ---
 
+## PROBAR EN EMULADOR (MuMuPlayer)
+
+No hay dispositivo Android físico habitual para pruebas — se usa **MuMuPlayer** (Netease)
+como emulador. `adb` no está en el PATH del sistema; hay que usar el `adb.exe` que trae
+el propio MuMuPlayer:
+
+```powershell
+$adb = "C:\Program Files\Netease\MuMuPlayer\nx_main\adb.exe"
+& $adb connect 127.0.0.1:16384   # puerto por defecto de la instancia única de MuMu 12
+& $adb devices
+```
+
+Si `connect` falla ("conexión denegada"), MuMuPlayer no está abierto — hay que pedir al
+usuario que lo abra (no se puede lanzar la GUI de un emulador de forma autónoma). Con
+el emulador abierto, el puerto 16384 aparece en `netstat -ano | grep LISTENING`. Una vez
+conectado, las tools MCP `b4a_list_devices` / `b4a_install_apk` / `b4a_screenshot` etc. lo
+detectan solas (usan el mismo `adb` bajo el capó).
+
+---
+
 ## ARQUITECTURA
 
 ```
@@ -277,3 +297,26 @@ Panel overlay `pnlFontSize` reutilizable para font size y grosor de línea.
 | HitTestAll Exit en primer corner | CotaEngine.HitTestAll | Evitar que último corner sobrescriba al primero |
 | Init fuera de FirstTime | Activity_Create | Listas y defaults sobreviven rotación de pantalla |
 | Camera temp con Rnd + limpieza previa | btnCameraProject_Click | Evitar colisión de nombres y archivos huérfanos |
+| `RecycleBitmap` en `ShowMagnifier` | HandleTouchMove (drag_endpoint, drag_boxhandle, place_cota1/2) | Evitar OutOfMemoryError tras arrastres largos (ver tabla de decisiones) |
+
+---
+
+## PUBLICACIÓN
+
+- Repo público: `github.com/unmateria/pakuMedidas` (namespace `unmateria`, mismo que el
+  resto de proyectos del usuario). `gh` ya autenticado como `unmateria` en esta máquina.
+- Licencia: `LICENSE.md` — **no** es una licencia PolyForm oficial. Es PolyForm
+  Noncommercial 1.0.0 (texto oficial verbatim) + una cláusula de reciprocidad/shareback
+  redactada a medida (marcada como tal en el propio fichero). Importante para el futuro:
+  **no existe ninguna "PolyForm Shareback"** — se comprobó exhaustivamente en
+  `polyformproject/polyform-licenses` (todas las ramas/tags) y en `polyformproject.org`;
+  si se vuelve a pedir combinar Noncommercial con reciprocidad, la opción real más
+  parecida ya evaluada es el par **Prosperity Public License + Parity Public License**
+  (License Zero), pero el usuario prefirió la cláusula custom sobre PolyForm Noncommercial.
+- Releases: manuales, sin CI. `gh release create vX.Y.Z Objects\pakumedidas.apk --title "..." --notes "..."`.
+  Versión actual: v1.0.1 (v1.0.0 tenía el bug de memoria de `ShowMagnifier`, ver tabla de
+  decisiones y `PATRONES DE ROBUSTEZ`).
+- Ficha en la web personal del usuario: `coletas.es/proyectos/pakumedidas/` (+ versión
+  `/en/`), fuente en el repo `coletasWorkshop` (`src/proyectos/pakumedidas.njk` /
+  `pakumedidas-en.njk`). Ese repo tiene su propio `CLAUDE.md` con las reglas para
+  añadir/editar entradas — consultarlo antes de tocar nada ahí.
